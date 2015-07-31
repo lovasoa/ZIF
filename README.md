@@ -52,3 +52,11 @@ Magic number in decimal | Magic bytes | Signification of **value 1** | Significa
 323  |`0x43 0x01`| ?                        | Tile height
 324  |`0x44 0x01`| Number of tiles          | Pointer to the *tile offsets index*
 325  |`0x45 0x01`| Number of tiles          | Pointer to the *tile sizes index*
+
+### Tile offsets index
+Simple list of pointers (8 bytes file offsets) to the beginning of tiles. Each tile is a simple JPEG file.
+
+### Tile sizes index
+Simple list of *long*s indicating tile sizes (in bytes). 
+
+
