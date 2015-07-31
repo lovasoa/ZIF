@@ -10,7 +10,8 @@ A zif file represents a single image. It contains JPEG *tiles*, little square im
 I have partially reverse-engineered the format. Here is what I found.
 
 ### Data types
-All numbers are stored in [**little endian**](https://en.wikipedia.org/wiki/Endianness)
+All numbers are stored in [**little endian**](https://en.wikipedia.org/wiki/Endianness) (the number `0xABCD` is sored as `0xCD 0xAB`).
+
 Term         | Signification
 -------------|---------------
 long         | 8 bytes unsigned int (uint64)
@@ -43,9 +44,7 @@ Offset (from the start of the tag) | Length (in bytes) | Data
 12                                 | 8  (long)         | **value 2**
 
 ##### Tag types
-Magic number | Length (in bytes) | Data
------------------------------------|-------------------|------------------------------
-0                                  | 2                 | Magic number identifying the tag type
-2                                  | 2                 | Unknown (but not null)
-4                                  | 8                 | **value 1**
-12                                 | 8                 | **value 2**
+Magic number in decimal | Magic bytes | Signification of **value 1** | Signification of **value 2**
+-----|---|---|---
+256|0x00 0x01| ? | Image width
+257|0x01 0x01| ? | Image height
