@@ -46,5 +46,5 @@ Offset (from the start of the tag) | Length (in bytes) | Data
 ##### Tag types
 Magic number in decimal | Magic bytes | Signification of **value 1** | Signification of **value 2**
 -----|---|---|---
-256|0x00 0x01| ? | Image width
-257|0x01 0x01| ? | Image height
+256  |`0x00 0x01`| ? | Image width at this zoomlevel
+257  |`0x01 0x01`| ? | Image height at this zoomlevel
