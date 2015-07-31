@@ -9,13 +9,14 @@ A zif file represents a single image. It contains JPEG *tiles*, little square im
 # ZIF file format documentation
 I have partially reverse-engineered the format. Here is what I found.
 
-### Vocabulary
+### Data types
+All numbers are stored in [**little endian**](https://en.wikipedia.org/wiki/Endianness)
 Term         | Signification
 -------------|---------------
 long         | 8 bytes unsigned int (uint64)
 int          | 4 bytes unsigned int (uint32)
 short        | 2 bytes unsigned int (uint16)
-pointer      | a *long* representing an offset from the beginning of the file
+pointer      | a *long* representing an offset in bytes from the beginning of the file
 
 ## Header
 
@@ -36,7 +37,15 @@ Each tag is 20 bytes long.
 
 Offset (from the start of the tag) | Length (in bytes) | Data
 -----------------------------------|-------------------|------------------------------
-0                                  | 2                 | Tag name
+0                                  | 2 (short)         | Magic number identifying the tag type
+2                                  | 2                 | Unknown (but not null)
+4                                  | 8  (long)         | **value 1**
+12                                 | 8  (long)         | **value 2**
+
+##### Tag types
+Magic number | Length (in bytes) | Data
+-----------------------------------|-------------------|------------------------------
+0                                  | 2                 | Magic number identifying the tag type
 2                                  | 2                 | Unknown (but not null)
 4                                  | 8                 | **value 1**
 12                                 | 8                 | **value 2**
