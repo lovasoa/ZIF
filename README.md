@@ -51,5 +51,4 @@ Magic number in decimal | Magic bytes | Signification of **value 1** | Significa
 322  |`0x42 0x01`| ?                        | Tile width
 323  |`0x43 0x01`| ?                        | Tile height
 324  |`0x44 0x01`| Number of tiles          | Pointer to the *tile offsets index*
-
-
+325  |`0x45 0x01`| Number of tiles          | Pointer to the *tile sizes index*
