@@ -57,6 +57,6 @@ Magic number in decimal | Magic bytes | Signification of **value 1** | Significa
 Simple list of pointers (8 bytes file offsets) to the beginning of tiles. Each tile is a simple JPEG file.
 
 ### Tile sizes index
-Simple list of *long*s indicating tile sizes (in bytes). 
+Simple list of *int*s indicating tile sizes (in bytes). 
 
 
