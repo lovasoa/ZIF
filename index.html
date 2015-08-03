@@ -1,0 +1,38 @@
+<head>
+  <meta charset="UTF-8" />
+  <title>zif</title>
+</head>
+<body>
+<input type="file" id="file" />
+<canvas id="canvas" ></canvas>
+
+<script src="ZIF.js"></script>
+<script>
+function parse() {
+  var f=input.files[0];
+  var ff = new LocalFile(f);
+  var zif = new ZIF(ff);
+  zif.getLevel(0).then(function (lvl) {
+    var d = lvl.dimensions();
+    canvas.width = d[0]; canvas.height = d[1];
+    var ctx = canvas.getContext("2d");
+    for(var x = 0; x < lvl.widthInTiles(); x++) {
+      for(var y = 0; y < lvl.heightInTiles(); y++) {
+        lvl.getTile(x, y).then(function(blob) {
+          var img = new Image;
+          img.src = URL.createObjectURL(blob);
+          img.onload = function() {
+            ctx.drawImage(img, this.x*256, this.y*256);
+          }.bind(this);
+        }.bind({x:x, y:y}));
+      }
+    }
+  });
+}
+
+var input=document.querySelector("input");
+var c = document.querySelector("canvas");
+input.onchange = parse;
+</script>
+</body>
+
