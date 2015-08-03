@@ -24,15 +24,15 @@ pointer      | a *long* representing an offset in bytes from the beginning of th
 ### Magic bytes
 The first 16 bytes of the file are always
 ```
-49 49 2B 00 08 00 00 00 10 00 00 00 00 00 00 00
+49 49 2B 00 08 00 00 00
 ```
 
 ### Metadata
-Meta-data start at offset `0x10` in the file.
+Meta-data start at offset `0x8` in the file.
 There is a set of metadata for every zoom level (tier).
 
 #### Zoomlevel metadata
-Each set of metadata starts with a long **pointer** to a long number representing the number of tags (single metadata) in the zoom level.
+Each set of metadata starts with a long **pointer** to a long number representing the number of tags (single metadata) in the zoom level. Usually this is a pointer to the offset `n + 8`, where `n` is the offset in bytes of the beggining of the metadata set (so, most often `*n == n+8`). Then, the real metadata start right after the metadata count (at `*n + 8`, which is usually equal to `n + 16`).
 
 Each tag is 20 bytes long.
 
