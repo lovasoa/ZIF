@@ -1,5 +1,5 @@
 class ZIF {
-  
+
   constructor(file) {
     this.file = file;
     this.head = this.parseHead(); // A promise for the header
@@ -8,7 +8,7 @@ class ZIF {
   getTile(x, y, zoomLevel) {
     return this.getLevel(zoomLevel).then(level => level.getTile(x,y));
   }
-  
+
   getLevel(zoomLevel) {
     return this.head.then(levels => levels[zoomLevel]);
   }
@@ -16,7 +16,7 @@ class ZIF {
   parseHead() {
     return this.file.getBytes(0, ZIF.MAX_HEAD_SIZE).then(b => this.parseHeadBytes(b));
   }
-  
+
   parseHeadBytes(bytes) {
     if (bytes.long(0) !== 0x08002b4949) throw new Error("invalid zif file");
     let levels = [];
@@ -44,27 +44,25 @@ class ZoomLevel {
   }
 
   getTilesInfos() {
-    if (this.tilesInfos !== null) return this.tilesInfos;
-    const count = this.get(ZoomLevel.m_count);
-    const poss = this.getUintArray(this.get(ZoomLevel.m_pos), count, 8);
-    const sizes = this.getUintArray(this.get(ZoomLevel.m_size), count, 4);
-
-    this.tilesInfos = Promise.all([poss,sizes]).then(ZoomLevel.transpose);
+    if (this.tilesInfos === null) {
+      this.tilesInfos = Promise.all([this.getTileOffsets(), this.getTileSizes()])
+                          .then(ZoomLevel.transpose);
+    }
     return this.tilesInfos;
   }
-  
+
   getTile(x, y) {
     return this.getTilesInfos().then(infos => this.subFile(infos[this.xy2num(x, y)]));
   }
-  
+
   set(k, v1, v2) {
     return this.meta.set(k, [v1,v2]);
   }
-  
+
   get(k){
     return this.meta.get(k[0])[k[1]];
   }
-  
+
   static m_width    = [0x0100, 1];
   static m_height   = [0x0101, 1];
   static m_tilesize = [0x0142, 1];
@@ -82,15 +80,29 @@ class ZoomLevel {
   heightInTiles() {
     return Math.ceil(this.get(ZoomLevel.m_height) / this.get(ZoomLevel.m_tilesize));
   }
-  
+
   xy2num(x,y) {
     return x + y * this.widthInTiles();
   }
-  
+
   subFile(posAndSize) {
     let [pos, size] = posAndSize;
     return this.file.getBytes(pos, pos+size)
             .then(bytes => new Blob([bytes.u8], {"type":"image/jpeg"}));
+  }
+
+  getTileOffsets() {
+    const count = this.get(ZoomLevel.m_count);
+    return this.getUintArray(this.get(ZoomLevel.m_pos), count, 8);
+  }
+
+  getTileSizes() {
+    const count = this.get(ZoomLevel.m_count);
+    const tagval = this.get(ZoomLevel.m_pos);
+    if (count < 3) {
+      return new Promise(accept => accept([tagval|0, tagval/0x100000000|0]));
+    }
+    return this.getUintArray(tagval, count, 4);
   }
 
   getUintArray(pos, count, bytesPerNum) {
@@ -102,7 +114,7 @@ class ZoomLevel {
                 return res;
             });
   }
-  
+
   static transpose(arrarr) {
     return arrarr[0].map((val, i) => arrarr.map(arr => arr[i]));
   }
