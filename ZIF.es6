@@ -93,14 +93,16 @@ class ZoomLevel {
 
   getTileOffsets() {
     const count = this.get(ZoomLevel.m_count);
-    return this.getUintArray(this.get(ZoomLevel.m_pos), count, 8);
+    const tagval = this.get(ZoomLevel.m_pos);
+    if (count === 1) return Promise.resolve([tagval]);
+    return this.getUintArray(tagval, count, 8);
   }
 
   getTileSizes() {
     const count = this.get(ZoomLevel.m_count);
-    const tagval = this.get(ZoomLevel.m_pos);
+    const tagval = this.get(ZoomLevel.m_size);
     if (count < 3) {
-      return new Promise(accept => accept([tagval|0, tagval/0x100000000|0]));
+      return Promise.resolve([tagval|0, tagval/0x100000000|0].slice(0, count));
     }
     return this.getUintArray(tagval, count, 4);
   }
