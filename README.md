@@ -50,13 +50,14 @@ Magic number in decimal | Magic bytes | Signification of **value 1** | Significa
 257  |`0x01 0x01`| ?                        | Image height at this zoomlevel
 322  |`0x42 0x01`| ?                        | Tile width
 323  |`0x43 0x01`| ?                        | Tile height
-324  |`0x44 0x01`| Number of tiles          | Pointer to the *tile offsets index*
-325  |`0x45 0x01`| Number of tiles          | Pointer to the *tile sizes index*
+324  |`0x44 0x01`| Number of tiles          | Pointer to the **tile offsets index**
+325  |`0x45 0x01`| Number of tiles          | Pointer to the **tile sizes index** (*see note below*)
+
+#### Note about tag 325 (`0x45 0x01`)
+For tag 325, if value1 is inferior to 3 (there are only 1 or 2 tiles in the tier), then **value2** is not a pointer to the tile sizes index, but is split is two int values, representing the JPEG tile sizes in bytes directly.
 
 ### Tile offsets index
 Simple list of pointers (8 bytes file offsets) to the beginning of tiles. Each tile is a simple JPEG file.
 
 ### Tile sizes index
-Simple list of *int*s indicating tile sizes (in bytes). 
-
-
+Simple list of *int*s indicating tile sizes (in bytes).
