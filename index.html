@@ -1,9 +1,16 @@
+<!DOCTYPE html>
+<html>
 <head>
   <meta charset="UTF-8" />
   <title>zif</title>
 </head>
 <body>
-<input type="file" id="file" />
+<h1>ZIF parser</h1>
+<form action="#">
+  <label>ZIF file <input type="file" id="file" /></label>
+  <label>Zoomlevel <input type="number" value="0" id="zoomlevel" /></label>
+  <input type="submit" />
+</form>
 <canvas id="canvas" ></canvas>
 
 <script src="ZIF.js"></script>
@@ -12,7 +19,7 @@ function parse() {
   var f=input.files[0];
   var ff = new LocalFile(f);
   var zif = new ZIF(ff);
-  zif.getLevel(0).then(function (lvl) {
+  zif.getLevel(inputZL.value | 0).then(function (lvl) {
     var d = lvl.dimensions();
     canvas.width = d[0]; canvas.height = d[1];
     var ctx = canvas.getContext("2d");
@@ -30,9 +37,10 @@ function parse() {
   });
 }
 
-var input=document.querySelector("input");
+var input=document.querySelector("#file");
+var inputZL=document.querySelector("#zoomlevel");
 var c = document.querySelector("canvas");
-input.onchange = parse;
+document.querySelector("form").onsubmit = parse;
 </script>
 </body>
-
+</html>
