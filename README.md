@@ -54,7 +54,7 @@ Magic number in decimal | Magic bytes | Signification of **value 1** | Significa
 325  |`0x45 0x01`| Number of tiles          | Pointer to the **tile sizes index** (*see note below*)
 
 #### Note about tag 325 (`0x45 0x01`)
-For tag 325, if value1 is inferior to 3 (there are only 1 or 2 tiles in the tier), then **value2** is not a pointer to the tile sizes index, but is split is two int values, representing the JPEG tile sizes in bytes directly.
+For tag 325, if value1 is inferior to 3 (there are only 1 or 2 tiles in the tier), then **value2** is not a pointer to the tile sizes index, but is split in two int values, representing the JPEG tile sizes in bytes directly. It is then as if the tile sizes index were at the offset of **value2**.
 
 ### Tile offsets index
 Simple list of pointers (8 bytes file offsets) to the beginning of tiles. Each tile is a simple JPEG file.
