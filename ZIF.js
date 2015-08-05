@@ -76,12 +76,9 @@ var ZoomLevel = (function () {
   _createClass(ZoomLevel, [{
     key: "getTilesInfos",
     value: function getTilesInfos() {
-      if (this.tilesInfos !== null) return this.tilesInfos;
-      var count = this.get(ZoomLevel.m_count);
-      var poss = this.getUintArray(this.get(ZoomLevel.m_pos), count, 8);
-      var sizes = this.getUintArray(this.get(ZoomLevel.m_size), count, 4);
-
-      this.tilesInfos = Promise.all([poss, sizes]).then(ZoomLevel.transpose);
+      if (this.tilesInfos === null) {
+        this.tilesInfos = Promise.all([this.getTileOffsets(), this.getTileSizes()]).then(ZoomLevel.transpose);
+      }
       return this.tilesInfos;
     }
   }, {
@@ -136,6 +133,24 @@ var ZoomLevel = (function () {
       });
     }
   }, {
+    key: "getTileOffsets",
+    value: function getTileOffsets() {
+      var count = this.get(ZoomLevel.m_count);
+      var tagval = this.get(ZoomLevel.m_pos);
+      if (count === 1) return Promise.resolve([tagval]);
+      return this.getUintArray(tagval, count, 8);
+    }
+  }, {
+    key: "getTileSizes",
+    value: function getTileSizes() {
+      var count = this.get(ZoomLevel.m_count);
+      var tagval = this.get(ZoomLevel.m_size);
+      if (count < 3) {
+        return Promise.resolve([tagval | 0, tagval / 0x100000000 | 0].slice(0, count));
+      }
+      return this.getUintArray(tagval, count, 4);
+    }
+  }, {
     key: "getUintArray",
     value: function getUintArray(pos, count, bytesPerNum) {
       return this.file.getBytes(pos, pos + bytesPerNum * count).then(function (bytes) {
@@ -145,6 +160,15 @@ var ZoomLevel = (function () {
       });
     }
   }], [{
+    key: "transpose",
+    value: function transpose(arrarr) {
+      return arrarr[0].map(function (val, i) {
+        return arrarr.map(function (arr) {
+          return arr[i];
+        });
+      });
+    }
+  }, {
     key: "m_width",
     value: [0x0100, 1],
     enumerable: true
@@ -168,15 +192,6 @@ var ZoomLevel = (function () {
     key: "m_size",
     value: [0x0145, 1],
     enumerable: true
-  }, {
-    key: "transpose",
-    value: function transpose(arrarr) {
-      return arrarr[0].map(function (val, i) {
-        return arrarr.map(function (arr) {
-          return arr[i];
-        });
-      });
-    }
   }]);
 
   return ZoomLevel;
