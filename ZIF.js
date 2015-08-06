@@ -57,7 +57,7 @@ var ZIF = (function () {
     }
   }], [{
     key: "MAX_HEAD_SIZE",
-    value: 2000,
+    value: 8192,
     enumerable: true
   }]);
 
