@@ -34,6 +34,8 @@ There is a set of metadata for every zoom level (tier).
 #### Zoomlevel metadata
 Each set of metadata starts with a long **pointer** to a long number representing the number of tags (single metadata) in the zoom level. Usually this is a pointer to the offset `n + 8`, where `n` is the offset in bytes of the beggining of the metadata set (so, most often `*n == n+8`). Then, the real metadata start right after the metadata count (at `*n + 8`, which is usually equal to `n + 16`).
 
+The last zoomlevel has its pointer to the next zoomlevel set to `0`.
+
 Each tag is 20 bytes long.
 
 Offset (from the start of the tag) | Length (in bytes) | Data

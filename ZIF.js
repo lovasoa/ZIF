@@ -43,8 +43,7 @@ var ZIF = (function () {
       if (bytes.long(0) !== 0x08002b4949) throw new Error("invalid zif file");
       var levels = [];
       var ptr = 0x8;
-      while (ptr > 0 && ptr < ZIF.MAX_HEAD_SIZE) {
-        ptr = bytes.long(ptr);
+      while ((ptr = bytes.long(ptr)) !== 0 && ptr < ZIF.MAX_HEAD_SIZE) {
         var nTags = bytes.long(ptr);
         var level = new ZoomLevel(this.file);
         levels.push(level);

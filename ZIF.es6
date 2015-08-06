@@ -21,8 +21,7 @@ class ZIF {
     if (bytes.long(0) !== 0x08002b4949) throw new Error("invalid zif file");
     let levels = [];
     let ptr = 0x8;
-    while ( ptr > 0 && ptr < ZIF.MAX_HEAD_SIZE) {
-      ptr = bytes.long(ptr);
+    while ( (ptr = bytes.long(ptr)) !== 0 && ptr < ZIF.MAX_HEAD_SIZE) {
       let nTags = bytes.long(ptr);
       let level = new ZoomLevel(this.file);
       levels.push(level);
