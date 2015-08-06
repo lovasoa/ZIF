@@ -33,7 +33,7 @@ class ZIF {
     }
     return levels;
   }
-  static MAX_HEAD_SIZE = 2000;
+  static MAX_HEAD_SIZE = 8192;
 }
 
 class ZoomLevel {
