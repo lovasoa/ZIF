@@ -1,6 +1,15 @@
 # ZIF
 zoomify ZIF (ZoomifyImageFormat) file format documentation and tools.
 
+# Tools
+## ZIF.js
+This repository hosts a implementation of the format in Ecmascript6. You can try it online here: http://lovasoa.github.io/ZIF/.
+
+## Zif.reader
+[@asherber](https://github.com/asherber) wrote a parser class for the format in C#, under the GPL. You can find it here: https://github.com/asherber/Zif.Reader
+
+# About the format
+
 The ZIF file format is used by zoomify as a single-file zoomable image format.
 A zif file represents a single image. It contains JPEG *tiles*, little square images that represent a part of the image at a given zoom level, as well as meta-information about how the tiles are organized. [More about the concept behind zoomify](https://msdn.microsoft.com/en-us/library/cc645050%28VS.95%29.aspx).
 
