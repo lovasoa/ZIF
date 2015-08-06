@@ -3,7 +3,7 @@ zoomify ZIF (ZoomifyImageFormat) file format documentation and tools.
 
 # Tools
 ## ZIF.js
-This repository hosts a implementation of the format in Ecmascript6. You can try it online here: http://lovasoa.github.io/ZIF/.
+This repository hosts a [implementation of the format in Ecmascript6](https://github.com/lovasoa/ZIF/blob/master/ZIF.es6). You can try it online here: http://lovasoa.github.io/ZIF/.
 
 ## Zif.reader
 [@asherber](https://github.com/asherber) wrote a parser class for the format in C#, under the GPL. You can find it here: https://github.com/asherber/Zif.Reader
