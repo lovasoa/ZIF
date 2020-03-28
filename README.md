@@ -1,3 +1,5 @@
+> **Edit from 2020** : I was recently made aware that the [ZIF file format](https://zif.photo/) is in fact a subset of [BigTiff](https://www.awaresystems.be/imaging/tiff/bigtiff.html). For end users, what this means is that it can easily be opened by many image viewing and manipulation softwares (such as [GIMP](https://www.gimp.org/)) by simply changing the file extension from `.zif` to `.tiff`.
+
 # ZIF
 zoomify ZIF (ZoomifyImageFormat) file format documentation and tools.
 
