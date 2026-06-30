@@ -129,7 +129,10 @@ impl WriterBuilder {
     ///
     /// This is a compatibility escape hatch for files described in the non-conformance
     /// note in specification section 6.6. New files should use [`Self::ycbcr_subsampling`].
-    pub fn preserve_nonstandard_ycbcr_subsampling(mut self, subsampling: (u16, u16)) -> Result<Self> {
+    pub fn preserve_nonstandard_ycbcr_subsampling(
+        mut self,
+        subsampling: (u16, u16),
+    ) -> Result<Self> {
         validate_nonstandard_ycbcr_subsampling(subsampling)?;
         self.ycbcr_subsampling = Some(subsampling);
         Ok(self)

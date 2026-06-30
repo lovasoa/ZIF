@@ -6,11 +6,11 @@ pub use zif::{Chunk, Error, Request, WriteBatch, WriteOp};
 
 pub type Result<T> = core::result::Result<T, Error>;
 
-#[path = "../src/reqwest.rs"]
-mod http_driver;
 #[allow(dead_code)]
 #[path = "../src/tokio.rs"]
 mod file_driver;
+#[path = "../src/reqwest.rs"]
+mod http_driver;
 
 fn main() -> io::Result<()> {
     tokio::runtime::Builder::new_current_thread()
@@ -111,10 +111,7 @@ fn writer_for(zif: &zif::Zif) -> io::Result<zif::Writer> {
     builder.build().map_err(io_error)
 }
 
-async fn fetch_tile(
-    http: &http_driver::HttpRangeReader,
-    req: zif::Request,
-) -> io::Result<Vec<u8>> {
+async fn fetch_tile(http: &http_driver::HttpRangeReader, req: zif::Request) -> io::Result<Vec<u8>> {
     if req.is_empty() {
         return Ok(Vec::new());
     }
