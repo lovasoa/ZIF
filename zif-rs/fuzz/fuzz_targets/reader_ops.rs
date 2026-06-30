@@ -22,8 +22,8 @@ const TAG_CHANNELS: u16 = 277;
 const TAG_INTERLEAVE: u16 = 284;
 const TAG_TILE_WIDTH: u16 = 322;
 const TAG_TILE_HEIGHT: u16 = 323;
-const TAG_TILE_COUNTS: u16 = 324;
-const TAG_TILE_OFFSETS: u16 = 325;
+const TAG_TILE_OFFSETS: u16 = 324;
+const TAG_TILE_COUNTS: u16 = 325;
 const TAG_YCBCR_SUBSAMPLING: u16 = 530;
 
 const TYPE_U16: u16 = 3;
@@ -543,8 +543,8 @@ fn assert_writer_directory_tags(file: &[u8], expected: &[ExpectedLevel]) {
             TAG_INTERLEAVE,
             TAG_TILE_WIDTH,
             TAG_TILE_HEIGHT,
-            TAG_TILE_COUNTS,
             TAG_TILE_OFFSETS,
+            TAG_TILE_COUNTS,
         ];
         if has_ycbcr_subsampling {
             expected_codes.push(TAG_YCBCR_SUBSAMPLING);
@@ -558,8 +558,8 @@ fn assert_writer_directory_tags(file: &[u8], expected: &[ExpectedLevel]) {
         assert_entry(&entries, TAG_INTERLEAVE, TYPE_U16, 1);
         assert_entry(&entries, TAG_TILE_WIDTH, TYPE_U32, 1);
         assert_entry(&entries, TAG_TILE_HEIGHT, TYPE_U32, 1);
-        assert_entry(&entries, TAG_TILE_COUNTS, TYPE_U32, exp.tiles_across * exp.tiles_down);
         assert_entry(&entries, TAG_TILE_OFFSETS, TYPE_U64, exp.tiles_across * exp.tiles_down);
+        assert_entry(&entries, TAG_TILE_COUNTS, TYPE_U32, exp.tiles_across * exp.tiles_down);
         if has_ycbcr_subsampling {
             assert_entry(&entries, TAG_YCBCR_SUBSAMPLING, TYPE_U16, 2);
         }

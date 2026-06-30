@@ -587,8 +587,8 @@ fn encode_directory(
     entry_u16(&mut out, TAG_INTERLEAVE, 1);
     entry_u32(&mut out, TAG_TILE_WIDTH, level.spec.tile_size.0);
     entry_u32(&mut out, TAG_TILE_HEIGHT, level.spec.tile_size.1);
-    entry_u32_array(&mut out, TAG_TILE_COUNTS, &level.counts, counts_pos)?;
     entry_u64_array(&mut out, TAG_TILE_OFFSETS, &level.offsets, offsets_pos)?;
+    entry_u32_array(&mut out, TAG_TILE_COUNTS, &level.counts, counts_pos)?;
     if has_ycbcr_subsampling {
         entry_u16_array_inline(&mut out, TAG_YCBCR_SUBSAMPLING, &[2, 2]);
     }

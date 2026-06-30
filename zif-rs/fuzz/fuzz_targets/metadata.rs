@@ -15,8 +15,8 @@ const TAG_CHANNELS: u16 = 277;
 const TAG_INTERLEAVE: u16 = 284;
 const TAG_TILE_WIDTH: u16 = 322;
 const TAG_TILE_HEIGHT: u16 = 323;
-const TAG_TILE_COUNTS: u16 = 324;
-const TAG_TILE_OFFSETS: u16 = 325;
+const TAG_TILE_OFFSETS: u16 = 324;
+const TAG_TILE_COUNTS: u16 = 325;
 
 const TYPE_U16: u16 = 3;
 const TYPE_U32: u16 = 4;
@@ -195,8 +195,8 @@ fn out_of_file_tile_range_file() -> Vec<u8> {
     push_entry(&mut file, &inline_u16(TAG_INTERLEAVE, 1));
     push_entry(&mut file, &inline_u32(TAG_TILE_WIDTH, 16));
     push_entry(&mut file, &inline_u32(TAG_TILE_HEIGHT, 16));
-    push_entry(&mut file, &inline_u32_array(TAG_TILE_COUNTS, 8, 0));
     push_entry(&mut file, &inline_u64(TAG_TILE_OFFSETS, u64::MAX - 7));
+    push_entry(&mut file, &inline_u32_array(TAG_TILE_COUNTS, 8, 0));
     push_u64(&mut file, 0);
     file
 }
@@ -273,8 +273,8 @@ fn entries_for_dir(dir: &Dir) -> Vec<Entry> {
         value_entry(TAG_INTERLEAVE, &dir.interleave),
         scalar_entry(TAG_TILE_WIDTH, &dir.tile_width),
         scalar_entry(TAG_TILE_HEIGHT, &dir.tile_height),
-        array_entry(TAG_TILE_COUNTS, &dir.counts, tile_count),
         array_entry(TAG_TILE_OFFSETS, &dir.offsets, tile_count),
+        array_entry(TAG_TILE_COUNTS, &dir.counts, tile_count),
     ];
     for extra in dir.extras.iter().take(8) {
         entries.push(Entry {

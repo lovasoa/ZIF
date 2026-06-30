@@ -338,8 +338,8 @@ entries required in every image directory.
 | 284 (0x011C)  | Interleave       | `u16`               | yes  | Always 1 (interleaved).                     |
 | 322 (0x0142)  | Tile width       | `u16`/`u32`         | yes  | Multiple of 16.                             |
 | 323 (0x0143)  | Tile height      | `u16`/`u32`         | yes  | Multiple of 16.                             |
-| 324 (0x0144)  | Tile byte counts | `u32`/`u64` array   | yes  | `tileCount` sizes in bytes, one per tile.   |
-| 325 (0x0145)  | Tile offsets     | `u32`/`u64` array   | yes  | `tileCount` file offsets, one per tile (§6.3). |
+| 324 (0x0144)  | Tile offsets     | `u32`/`u64` array   | yes  | `tileCount` file offsets, one per tile (§6.3). |
+| 325 (0x0145)  | Tile byte counts | `u32`/`u64` array   | yes  | `tileCount` sizes in bytes, one per tile.   |
 | 330 (0x014A)  | Sub-directory    | dir-offset          | no   | Offset to a thumbnail sub-directory (§7).    |
 | 530 (0x0212)  | YCbCr subsampling| `u16` array         | no   | Two values: horizontal and vertical subsampling. Valid values are `1,1` (4:4:4) or `2,2` (4:2:0). SHOULD be present when color model is YCbCr. |
 | 271 (0x010F)  | Make             | ASCII               | no   | Device manufacturer (§10.2).                |

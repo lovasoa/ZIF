@@ -72,8 +72,8 @@ fn assert_raw_directory_chain(file: &[u8], expected_levels: usize, expected_entr
         let entries = raw_entries(file, dir_offset, count);
         let codes: Vec<_> = entries.iter().map(|entry| entry.code).collect();
         assert!(codes.windows(2).all(|pair| pair[0] < pair[1]));
-        assert_eq!(entry(&entries, 324).ty, 4);
-        assert_eq!(entry(&entries, 325).ty, 16);
+        assert_eq!(entry(&entries, 324).ty, 16);
+        assert_eq!(entry(&entries, 325).ty, 4);
         if expected_entries == 12 {
             assert_eq!(entry(&entries, 530).ty, 3);
             assert_eq!(entry(&entries, 530).count, 2);
@@ -382,23 +382,23 @@ fn writer_emits_bigtiff_compatible_tag_ids_types_and_order() {
     assert_eq!(entry(&entries, 284).ty, 3);
     assert_eq!(entry(&entries, 322).ty, 4);
     assert_eq!(entry(&entries, 323).ty, 4);
-    assert_eq!(entry(&entries, 324).ty, 4);
+    assert_eq!(entry(&entries, 324).ty, 16);
     assert_eq!(entry(&entries, 324).count, 9);
-    assert_eq!(entry(&entries, 325).ty, 16);
+    assert_eq!(entry(&entries, 325).ty, 4);
     assert_eq!(entry(&entries, 325).count, 9);
     assert_eq!(entry(&entries, 530).ty, 3);
     assert_eq!(entry(&entries, 530).count, 2);
 }
 
 #[test]
-fn writer_uses_tiff_tile_byte_counts_before_tile_offsets() {
+fn writer_uses_tiff_tile_offsets_before_tile_byte_counts() {
     let file = reader_file((32, 16), (16, 16), &[((0, 0), b"left"), ((1, 0), b"right")]);
     let entries = first_directory_entries(&file);
-    let counts = entry(&entries, 324);
-    let offsets = entry(&entries, 325);
+    let offsets = entry(&entries, 324);
+    let counts = entry(&entries, 325);
 
-    assert_eq!(counts.ty, 4);
     assert_eq!(offsets.ty, 16);
+    assert_eq!(counts.ty, 4);
     let offsets_offset = usize::try_from(u64::from_le_bytes(offsets.slot)).unwrap();
     assert_eq!(u32::from_le_bytes(counts.slot[..4].try_into().unwrap()), 4);
     assert_eq!(u32::from_le_bytes(counts.slot[4..8].try_into().unwrap()), 5);
@@ -595,12 +595,12 @@ fn reader_rejects_overflowing_tile_byte_range() {
     entry_u16(&mut file, 284, 1);
     entry_u32(&mut file, 322, 16);
     entry_u32(&mut file, 323, 16);
-    entry_u64(&mut file, 324, u64::MAX);
     entry_u64(
         &mut file,
-        325,
+        324,
         u64::try_from(16 + 8 + 11 * ENTRY_LEN + 8).unwrap(),
     );
+    entry_u64(&mut file, 325, u64::MAX);
     push_u64(&mut file, 0);
 
     let mut reader = Reader::new();
