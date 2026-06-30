@@ -1,8 +1,6 @@
-//! Helpers used by rustdoc examples.
-
 use alloc::vec::Vec;
 
-use crate::{Chunk, Codec, ColorModel, ReadStatus, Reader, WriteBatch, WriteOp, Writer, Zif};
+use crate::{Chunk, Codec, ColorModel, ReadStatus, Reader, WriteBatch, Writer, Zif};
 
 pub fn sample_file() -> Vec<u8> {
     let mut writer = Writer::new()
@@ -44,18 +42,11 @@ pub fn sample_zif() -> Zif {
 
 pub fn apply(file: &mut Vec<u8>, batch: WriteBatch) {
     for op in batch.into_ops() {
-        match op {
-            WriteOp::InitHeader(bytes) => {
-                if file.len() < bytes.len() {
-                    file.resize(bytes.len(), 0);
-                }
-                file[..bytes.len()].copy_from_slice(&bytes);
-            }
-            WriteOp::Append(bytes) => file.extend_from_slice(&bytes),
-            WriteOp::PatchU64 { offset, value } => {
-                let offset = usize::try_from(offset.get()).expect("sample offsets fit usize");
-                file[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
-            }
+        let offset = usize::try_from(op.offset).expect("sample offsets fit usize");
+        let end = offset + op.bytes.len();
+        if file.len() < end {
+            file.resize(end, 0);
         }
+        file[offset..end].copy_from_slice(&op.bytes);
     }
 }

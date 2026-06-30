@@ -13,6 +13,13 @@ impl HttpRangeReader {
         }
     }
 
+    pub fn with_client(client: reqwest::Client, url: impl Into<String>) -> Self {
+        Self {
+            client,
+            url: url.into(),
+        }
+    }
+
     pub async fn fetch(&self, req: Request) -> crate::Result<Chunk> {
         let header = if req.is_empty() {
             String::from("bytes=0-0")

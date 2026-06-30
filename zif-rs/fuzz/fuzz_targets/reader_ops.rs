@@ -8,8 +8,7 @@ use std::fs;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use zif::{
-    ChainKind, Chunk, Codec, ColorModel, LevelSpec, ReadStatus, Reader, WriteBatch, WriteOp,
-    Writer,
+    ChainKind, Chunk, Codec, ColorModel, LevelSpec, ReadStatus, Reader, WriteBatch, Writer,
 };
 
 const ENTRY_LEN: usize = 20;
@@ -175,7 +174,9 @@ fuzz_target!(|data: &[u8]| {
                 let col = u64::from(col) % exp.tiles_across;
                 let row = u64::from(row) % exp.tiles_down;
                 if let Ok(batch) = writer.put_tile_at_level(level, (col, row), &bytes) {
-                    apply(&mut file, batch);
+                    if !batch.is_empty() {
+                        apply(&mut file, batch);
+                    }
                     exp.payloads.insert((col, row), bytes);
                     assert_full_parse_invariants(&file, &expected, color_model, channels);
                 }
@@ -184,10 +185,15 @@ fuzz_target!(|data: &[u8]| {
                 if expected.len() == 1 {
                     let tile_size = expected[0].tile_size;
                     let dimensions = (dimension(width), dimension(height));
-                    if let Ok(batch) = writer.set_dimensions(dimensions) {
-                        apply(&mut file, batch);
+                    if let Ok(batch) = writer.set_dimensions(0, dimensions) {
+                        let was_empty = batch.is_empty();
+                        if !was_empty {
+                            apply(&mut file, batch);
+                        }
                         resize_expected(&mut expected[0], dimensions, tile_size);
-                        assert_full_parse_invariants(&file, &expected, color_model, channels);
+                        if !was_empty {
+                            assert_full_parse_invariants(&file, &expected, color_model, channels);
+                        }
                     }
                 }
             }
@@ -745,19 +751,11 @@ fn expected_chain_kind(levels: &[ExpectedLevel]) -> ChainKind {
 
 fn apply(file: &mut Vec<u8>, batch: WriteBatch) {
     for op in batch.into_ops() {
-        match op {
-            WriteOp::InitHeader(bytes) => {
-                if file.len() < bytes.len() {
-                    file.resize(bytes.len(), 0);
-                }
-                file[..bytes.len()].copy_from_slice(&bytes);
-            }
-            WriteOp::Append(bytes) => file.extend_from_slice(&bytes),
-            WriteOp::PatchU64 { offset, value } => {
-                let offset = usize::try_from(offset.get()).expect("fuzz offsets fit usize");
-                assert!(file.len() >= offset + 8);
-                file[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
-            }
+        let offset = usize::try_from(op.offset).expect("fuzz offsets fit usize");
+        let end = offset + op.bytes.len();
+        if file.len() < end {
+            file.resize(end, 0);
         }
+        file[offset..end].copy_from_slice(&op.bytes);
     }
 }

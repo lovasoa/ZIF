@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use zif::{Codec, ColorModel, LevelSpec, WriteBatch, WriteOp, Writer};
+use zif::{Codec, ColorModel, LevelSpec, WriteBatch, Writer};
 
 static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
 const JPEG_GRAY_16: &[u8] = include_bytes!("jpeg-gray-16.jpg");
@@ -13,19 +13,12 @@ const JPEG_YCBCR_420_16: &[u8] = include_bytes!("jpeg-ycbcr-420-16.jpg");
 
 fn apply(file: &mut Vec<u8>, batch: WriteBatch) {
     for op in batch.into_ops() {
-        match op {
-            WriteOp::InitHeader(bytes) => {
-                if file.len() < bytes.len() {
-                    file.resize(bytes.len(), 0);
-                }
-                file[..bytes.len()].copy_from_slice(&bytes);
-            }
-            WriteOp::Append(bytes) => file.extend_from_slice(&bytes),
-            WriteOp::PatchU64 { offset, value } => {
-                let offset = usize::try_from(offset.get()).unwrap();
-                file[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
-            }
+        let offset = usize::try_from(op.offset).unwrap();
+        let end = offset + op.bytes.len();
+        if file.len() < end {
+            file.resize(end, 0);
         }
+        file[offset..end].copy_from_slice(&op.bytes);
     }
 }
 

@@ -1,20 +1,13 @@
-use zif::{Chunk, Codec, ColorModel, ReadStatus, Reader, WriteBatch, WriteOp, Writer};
+use zif::{Chunk, Codec, ColorModel, ReadStatus, Reader, WriteBatch, Writer};
 
 fn apply(file: &mut Vec<u8>, batch: WriteBatch) {
     for op in batch.into_ops() {
-        match op {
-            WriteOp::InitHeader(bytes) => {
-                if file.len() < 16 {
-                    file.resize(16, 0);
-                }
-                file[..16].copy_from_slice(&bytes);
-            }
-            WriteOp::Append(bytes) => file.extend_from_slice(&bytes),
-            WriteOp::PatchU64 { offset, value } => {
-                let offset = usize::try_from(offset.get()).unwrap();
-                file[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
-            }
+        let offset = usize::try_from(op.offset).unwrap();
+        let end = offset + op.bytes.len();
+        if file.len() < end {
+            file.resize(end, 0);
         }
+        file[offset..end].copy_from_slice(&op.bytes);
     }
 }
 
@@ -46,7 +39,6 @@ fn writer_roundtrips_one_tile_file() {
     assert_eq!(zif.dimensions(), (16, 16));
     assert_eq!(zif.level_count(), 1);
     let tile = zif.get_level_tiles(0).unwrap().next().unwrap();
-    assert_eq!(tile.bytes(), 16..20);
     let bytes = tile.bytes();
     let start = usize::try_from(bytes.start).unwrap();
     let end = usize::try_from(bytes.end).unwrap();

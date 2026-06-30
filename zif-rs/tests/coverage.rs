@@ -1,23 +1,16 @@
 use zif::{
     ChainKind, Chunk, Codec, ColorModel, Error, LevelSpec, ReadStatus, Reader, Request, WriteBatch,
-    WriteOp, Writer,
+    Writer,
 };
 
 fn apply(file: &mut Vec<u8>, batch: WriteBatch) {
     for op in batch.into_ops() {
-        match op {
-            WriteOp::InitHeader(bytes) => {
-                if file.len() < bytes.len() {
-                    file.resize(bytes.len(), 0);
-                }
-                file[..bytes.len()].copy_from_slice(&bytes);
-            }
-            WriteOp::Append(bytes) => file.extend_from_slice(&bytes),
-            WriteOp::PatchU64 { offset, value } => {
-                let offset = usize::try_from(offset.get()).unwrap();
-                file[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
-            }
+        let offset = usize::try_from(op.offset).unwrap();
+        let end = offset + op.bytes.len();
+        if file.len() < end {
+            file.resize(end, 0);
         }
+        file[offset..end].copy_from_slice(&op.bytes);
     }
 }
 
@@ -458,7 +451,7 @@ fn set_dimensions_preserves_existing_tile_positions() {
         .unwrap();
     let mut file = Vec::new();
     apply(&mut file, writer.put_tile((0, 0), b"old").unwrap());
-    apply(&mut file, writer.set_dimensions((32, 16)).unwrap());
+    apply(&mut file, writer.set_dimensions(0, (32, 16)).unwrap());
     let zif = parse(&file);
     assert_eq!(zif.dimensions(), (32, 16));
     assert_eq!(zif.level(0).unwrap().tile_grid(), (2, 1));
@@ -484,7 +477,7 @@ fn set_dimensions_before_first_tile_does_not_overlap_later_tile_payload() {
         .unwrap();
     let mut file = Vec::new();
 
-    apply(&mut file, writer.set_dimensions((32, 16)).unwrap());
+    apply(&mut file, writer.set_dimensions(0, (32, 16)).unwrap());
     apply(&mut file, writer.put_tile((1, 0), b"new").unwrap());
 
     let zif = parse(&file);
@@ -511,7 +504,7 @@ fn writer_replacing_tile_after_resize_points_to_new_payload() {
     let mut file = Vec::new();
 
     apply(&mut file, writer.put_tile((0, 0), b"old").unwrap());
-    apply(&mut file, writer.set_dimensions((32, 16)).unwrap());
+    apply(&mut file, writer.set_dimensions(0, (32, 16)).unwrap());
     apply(&mut file, writer.put_tile((0, 0), b"new payload").unwrap());
 
     let zif = parse(&file);
