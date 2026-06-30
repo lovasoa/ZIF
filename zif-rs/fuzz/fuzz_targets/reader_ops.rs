@@ -519,7 +519,9 @@ fn assert_writer_directory_tags(file: &[u8], expected: &[ExpectedLevel]) {
         let dir_offset = usize::try_from(dir).expect("directory offset fits usize");
         assert!(dir_offset + 8 <= file.len());
         let count = usize::try_from(read_u64(file, dir_offset)).expect("entry count fits usize");
-        let has_ycbcr_subsampling = entry_color_model(file, dir_offset) == 6;
+        let has_ycbcr_subsampling =
+            entry_u16_value(file, dir_offset, TAG_CODEC) == 7
+                && entry_u16_value(file, dir_offset, TAG_COLOR) == 6;
         assert_eq!(count, 11 + usize::from(has_ycbcr_subsampling));
         let entries: Vec<_> = (0..count)
             .map(|index| {
@@ -568,11 +570,11 @@ fn assert_writer_directory_tags(file: &[u8], expected: &[ExpectedLevel]) {
     assert_eq!(dir, 0);
 }
 
-fn entry_color_model(file: &[u8], dir_offset: usize) -> u16 {
+fn entry_u16_value(file: &[u8], dir_offset: usize, code: u16) -> u16 {
     let count = usize::try_from(read_u64(file, dir_offset)).expect("entry count fits usize");
     for index in 0..count {
         let offset = dir_offset + 8 + index * ENTRY_LEN;
-        if read_u16(file, offset) == TAG_COLOR {
+        if read_u16(file, offset) == code {
             return read_u16(file, offset + 12);
         }
     }
