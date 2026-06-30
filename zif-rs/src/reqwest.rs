@@ -6,14 +6,14 @@ pub struct HttpRangeReader {
 }
 
 impl HttpRangeReader {
-    pub fn new(url: impl Into<String>) -> crate::Result<Self> {
-        Ok(Self {
+    pub fn new(url: impl Into<String>) -> Self {
+        Self {
             client: reqwest::Client::new(),
             url: url.into(),
-        })
+        }
     }
 
-    pub async fn fetch(&mut self, req: Request) -> crate::Result<Chunk> {
+    pub async fn fetch(&self, req: Request) -> crate::Result<Chunk> {
         let header = if req.is_empty() {
             String::from("bytes=0-0")
         } else {

@@ -21,7 +21,7 @@ The core crate is Sans-IO: it parses metadata, plans byte-range requests, expose
 Read a remote ZIF file and inspect its dimensions:
 
 ```rust
-let mut io = zif::reqwest::HttpRangeReader::new("https://example.com/slide.zif")?;
+let mut io = zif::reqwest::HttpRangeReader::new("https://example.com/slide.zif");
 let mut reader = zif::Reader::new();
 let mut chunk = zif::Chunk::default();
 
@@ -42,7 +42,7 @@ println!(
 Fetch the encoded tiles intersecting a viewport:
 
 ```rust
-let mut io = zif::reqwest::HttpRangeReader::new("https://example.com/slide.zif")?;
+let mut io = zif::reqwest::HttpRangeReader::new("https://example.com/slide.zif");
 let level = 2;
 
 // Region is (x_range, y_range), in pixels at this level.
@@ -209,7 +209,7 @@ for tile in zif.get_level_tiles(2)? {
 Tiles intersecting a viewport:
 
 ```rust
-let mut io = zif::reqwest::HttpRangeReader::new("https://example.com/slide.zif")?;
+let mut io = zif::reqwest::HttpRangeReader::new("https://example.com/slide.zif");
 
 // Region is (x_range, y_range), in pixels at level 2.
 let visible = (10_000..20_000, 15_000..25_000);
@@ -253,7 +253,7 @@ The core API works with any backend that can fetch byte ranges and return `Chunk
 ```rust
 let mut io = zif::std::FileRangeReader::open("slide.zif")?;
 let mut io = zif::tokio::FileRangeReader::open("slide.zif").await?;
-let mut io = zif::reqwest::HttpRangeReader::new("https://example.com/slide.zif")?;
+let mut io = zif::reqwest::HttpRangeReader::new("https://example.com/slide.zif");
 ```
 
 Custom backends are straightforward because the reader only needs `Request` in and `Chunk` out.

@@ -26,7 +26,7 @@ impl FileRangeReader {
         ];
         self.file.read_exact(&mut bytes)?;
         Chunk::new(req.range(), bytes)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))
     }
 }
 
