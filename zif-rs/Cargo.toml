@@ -1,0 +1,41 @@
+[package]
+name = "zif"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+description = "Sans-IO Rust reader and writer for the ZIF zoomable image format"
+readme = "README.md"
+repository = "https://github.com/lovasoa/ZIF"
+keywords = ["zif", "tiff", "image", "tiles"]
+categories = ["encoding", "multimedia::images", "parser-implementations"]
+
+[features]
+default = []
+std = []
+tokio = ["std", "dep:tokio"]
+reqwest = ["std", "dep:reqwest"]
+
+[dependencies]
+tokio = { version = "1", optional = true, default-features = false, features = ["fs", "io-util"] }
+reqwest = { version = "0.12", optional = true, default-features = false, features = ["blocking", "rustls-tls"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+multiple_crate_versions = "allow"
+missing_const_for_fn = "allow"
+return_self_not_must_use = "allow"
+needless_pass_by_value = "allow"
+new_ret_no_self = "allow"
+too_many_arguments = "allow"
+too_many_lines = "allow"

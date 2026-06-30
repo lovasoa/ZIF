@@ -1,0 +1,307 @@
+use zif::{
+    ChainKind, Chunk, Codec, ColorModel, Error, LevelSpec, ReadStatus, Reader, Request, WriteBatch,
+    WriteOp, Writer,
+};
+
+fn apply(file: &mut Vec<u8>, batch: WriteBatch) {
+    for op in batch.into_ops() {
+        match op {
+            WriteOp::InitHeader(bytes) => {
+                if file.len() < bytes.len() {
+                    file.resize(bytes.len(), 0);
+                }
+                file[..bytes.len()].copy_from_slice(&bytes);
+            }
+            WriteOp::Append(bytes) => file.extend_from_slice(&bytes),
+            WriteOp::PatchU64 { offset, value } => {
+                let offset = usize::try_from(offset.get()).unwrap();
+                file[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+            }
+        }
+    }
+}
+
+fn reader_file(
+    dimensions: (u64, u64),
+    tile_size: (u32, u32),
+    tiles: &[((u64, u64), &[u8])],
+) -> Vec<u8> {
+    let mut writer = Writer::new()
+        .dimensions(dimensions)
+        .tile_size(tile_size)
+        .unwrap()
+        .codec(Codec::Jpeg)
+        .color_model(ColorModel::YCbCr)
+        .channels(3)
+        .unwrap()
+        .build()
+        .unwrap();
+    let mut file = Vec::new();
+    for &(coord, bytes) in tiles {
+        apply(&mut file, writer.put_tile(coord, bytes).unwrap());
+    }
+    file
+}
+
+fn parse(file: &[u8]) -> zif::Zif {
+    let mut reader = Reader::new();
+    assert_eq!(
+        reader
+            .advance(Chunk::from_start(0, file.to_vec()).unwrap())
+            .unwrap(),
+        ReadStatus::Done
+    );
+    reader.zif().unwrap().clone()
+}
+
+#[test]
+fn request_accessors_and_validation() {
+    let req = Request::new(5..12).unwrap();
+    assert_eq!(req.start(), 5);
+    assert_eq!(req.end(), 12);
+    assert_eq!(req.len(), 7);
+    assert_eq!(req.range(), 5..12);
+    assert!(!req.is_empty());
+    let (start, end) = (12, 5);
+    assert!(Request::new(start..end).is_err());
+    assert!(Request::new(5..5).unwrap().is_empty());
+}
+
+#[test]
+fn chunk_accessors_and_validation() {
+    let chunk = Chunk::from_start(9, vec![1, 2, 3]).unwrap();
+    assert_eq!(chunk.start(), 9);
+    assert_eq!(chunk.end(), 12);
+    assert_eq!(chunk.range(), 9..12);
+    assert_eq!(chunk.bytes(), &[1, 2, 3]);
+    let (start, end) = (10, 9);
+    assert!(Chunk::new(start..end, Vec::<u8>::new()).is_err());
+    assert!(Chunk::new(0..2, vec![1]).is_err());
+}
+
+#[test]
+fn reader_rejects_bad_header() {
+    let mut file = reader_file((16, 16), (16, 16), &[((0, 0), b"tile")]);
+    file[0] = 0;
+    let mut reader = Reader::new();
+    assert!(matches!(
+        reader.advance(Chunk::from_start(0, file).unwrap()),
+        Err(Error::MalformedFile(_))
+    ));
+}
+
+#[test]
+fn reader_rejects_incoherent_overlapping_chunks() {
+    let mut reader = Reader::new();
+    assert!(reader
+        .advance(Chunk::from_start(0, vec![1, 2, 3, 4]).unwrap())
+        .is_ok());
+    let err = reader
+        .advance(Chunk::from_start(2, vec![9, 4]).unwrap())
+        .unwrap_err();
+    assert!(matches!(err, Error::InvalidInput(_)));
+}
+
+#[test]
+fn reader_requests_referenced_arrays_incrementally() {
+    let file = reader_file((40, 40), (16, 16), &[((0, 0), b"a")]);
+    let mut reader = Reader::new();
+    let status = reader
+        .advance(Chunk::from_start(0, file[..16].to_vec()).unwrap())
+        .unwrap();
+    let ReadStatus::NeedMore(req) = status else {
+        panic!("expected request")
+    };
+    assert!(req.start() >= 16);
+}
+
+#[test]
+fn tile_iteration_is_row_major_and_clips_edges() {
+    let file = reader_file((40, 40), (16, 16), &[((0, 0), b"a")]);
+    let zif = parse(&file);
+    let coords: Vec<_> = zif
+        .get_level_tiles(0)
+        .unwrap()
+        .map(|t| (t.col(), t.row(), t.index()))
+        .collect();
+    assert_eq!(coords[0], (0, 0, 0));
+    assert_eq!(coords[1], (1, 0, 1));
+    assert_eq!(coords[3], (0, 1, 3));
+    let edge = zif.level(0).unwrap().tile(2, 2).unwrap();
+    assert_eq!(edge.x(), 32);
+    assert_eq!(edge.y(), 32);
+    assert_eq!(edge.width(), 8);
+    assert_eq!(edge.height(), 8);
+    assert_eq!(edge.size(), (8, 8));
+}
+
+#[test]
+fn cropped_tiles_clamp_out_of_bounds_and_reject_bad_region() {
+    let file = reader_file((40, 40), (16, 16), &[((0, 0), b"a")]);
+    let zif = parse(&file);
+    assert_eq!(
+        zif.get_cropped_level_tiles(0, (100..200, 0..10))
+            .unwrap()
+            .count(),
+        0
+    );
+    let (start, end) = (20, 10);
+    assert!(zif.get_cropped_level_tiles(0, (start..end, 0..10)).is_err());
+}
+
+#[test]
+fn writer_validates_builder_inputs() {
+    assert!(LevelSpec::new((0, 16), (16, 16)).is_err());
+    assert!(LevelSpec::new((16, 16), (15, 16)).is_err());
+    assert!(Writer::new().channels(2).is_err());
+    assert!(Writer::new()
+        .dimensions((16, 16))
+        .tile_size((16, 16))
+        .unwrap()
+        .codec(Codec::Jpeg)
+        .color_model(ColorModel::YCbCr)
+        .build()
+        .is_err());
+    assert!(Writer::new()
+        .dimensions((16, 16))
+        .tile_size((16, 16))
+        .unwrap()
+        .codec(Codec::Jpeg)
+        .color_model(ColorModel::BlackIsZero)
+        .channels(3)
+        .unwrap()
+        .build()
+        .is_err());
+}
+
+#[test]
+fn writer_rejects_bad_tile_coordinates() {
+    let mut writer = Writer::new()
+        .dimensions((16, 16))
+        .tile_size((16, 16))
+        .unwrap()
+        .codec(Codec::Jpeg)
+        .color_model(ColorModel::YCbCr)
+        .channels(3)
+        .unwrap()
+        .build()
+        .unwrap();
+    assert!(writer.put_tile((1, 0), b"x").is_err());
+    assert!(writer.put_tile_at_level(1, (0, 0), b"x").is_err());
+}
+
+#[test]
+fn set_dimensions_preserves_existing_tile_positions() {
+    let mut writer = Writer::new()
+        .dimensions((16, 16))
+        .tile_size((16, 16))
+        .unwrap()
+        .codec(Codec::Jpeg)
+        .color_model(ColorModel::YCbCr)
+        .channels(3)
+        .unwrap()
+        .build()
+        .unwrap();
+    let mut file = Vec::new();
+    apply(&mut file, writer.put_tile((0, 0), b"old").unwrap());
+    apply(&mut file, writer.set_dimensions((32, 16)).unwrap());
+    let zif = parse(&file);
+    assert_eq!(zif.dimensions(), (32, 16));
+    assert_eq!(zif.level(0).unwrap().tile_grid(), (2, 1));
+    let tile = zif.level(0).unwrap().tile(0, 0).unwrap();
+    let bytes = tile.bytes();
+    assert_eq!(
+        &file[usize::try_from(bytes.start).unwrap()..usize::try_from(bytes.end).unwrap()],
+        b"old"
+    );
+}
+
+#[test]
+fn multi_level_writer_links_directories_and_classifies_pyramid() {
+    let mut writer = Writer::new()
+        .level(LevelSpec::new((32, 32), (16, 16)).unwrap())
+        .level(LevelSpec::new((16, 16), (16, 16)).unwrap())
+        .codec(Codec::Jpeg)
+        .color_model(ColorModel::YCbCr)
+        .channels(3)
+        .unwrap()
+        .build()
+        .unwrap();
+    let mut file = Vec::new();
+    apply(
+        &mut file,
+        writer.put_tile_at_level(0, (0, 0), b"base").unwrap(),
+    );
+    apply(
+        &mut file,
+        writer.put_tile_at_level(1, (0, 0), b"top").unwrap(),
+    );
+    let zif = parse(&file);
+    assert_eq!(zif.level_count(), 2);
+    assert_eq!(zif.chain_kind(), ChainKind::Pyramid);
+    assert_eq!(zif.level(1).unwrap().dimensions(), (16, 16));
+}
+
+#[test]
+fn reader_rejects_tile_byte_range_beyond_full_file() {
+    const ENTRY_LEN: usize = 20;
+    const TYPE_U16: u16 = 3;
+    const TYPE_U32: u16 = 4;
+    const TYPE_U64: u16 = 16;
+
+    fn push_u16(out: &mut Vec<u8>, value: u16) {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    fn push_u64(out: &mut Vec<u8>, value: u64) {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    fn entry(out: &mut Vec<u8>, code: u16, ty: u16, count: u64, slot: [u8; 8]) {
+        push_u16(out, code);
+        push_u16(out, ty);
+        push_u64(out, count);
+        out.extend_from_slice(&slot);
+    }
+    fn entry_u16(out: &mut Vec<u8>, code: u16, value: u16) {
+        let mut slot = [0; 8];
+        slot[..2].copy_from_slice(&value.to_le_bytes());
+        entry(out, code, TYPE_U16, 1, slot);
+    }
+    fn entry_u32(out: &mut Vec<u8>, code: u16, value: u32) {
+        let mut slot = [0; 8];
+        slot[..4].copy_from_slice(&value.to_le_bytes());
+        entry(out, code, TYPE_U32, 1, slot);
+    }
+    fn entry_u64(out: &mut Vec<u8>, code: u16, value: u64) {
+        entry(out, code, TYPE_U64, 1, value.to_le_bytes());
+    }
+
+    let mut file = Vec::from([
+        0x49, 0x49, 0x2b, 0x00, 0x08, 0x00, 0x00, 0x00, 16, 0, 0, 0, 0, 0, 0, 0,
+    ]);
+    push_u64(&mut file, 11);
+    entry_u32(&mut file, 256, 16);
+    entry_u32(&mut file, 257, 16);
+    entry_u16(&mut file, 258, 8);
+    entry_u16(&mut file, 259, 7);
+    entry_u16(&mut file, 262, 6);
+    entry_u16(&mut file, 277, 3);
+    entry_u16(&mut file, 284, 1);
+    entry_u32(&mut file, 322, 16);
+    entry_u32(&mut file, 323, 16);
+    entry_u64(
+        &mut file,
+        324,
+        u64::try_from(16 + 8 + 11 * ENTRY_LEN + 8).unwrap(),
+    );
+    entry_u32(&mut file, 325, u32::MAX);
+    push_u64(&mut file, 0);
+
+    let mut reader = Reader::new();
+    let err = reader
+        .advance(Chunk::from_start(0, file).unwrap())
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        Error::MalformedFile("tile byte range exceeds file length")
+    ));
+}

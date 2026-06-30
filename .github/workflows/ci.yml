@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+    paths:
+      - "zif-rs/**"
+      - ".github/workflows/ci.yml"
+  push:
+    paths:
+      - "zif-rs/**"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: zif-rs
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: zif-rs
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy without default features
+        run: cargo clippy --no-default-features --all-targets -- -D warnings
+
+      - name: Clippy with all features
+        run: cargo clippy --all-features --all-targets -- -D warnings
+
+      - name: Test without default features
+        run: cargo test --no-default-features
+
+      - name: Test with std
+        run: cargo test --no-default-features --features std
+
+      - name: Test with all features
+        run: cargo test --all-features
+
+      - name: Fuzz target type-check
+        run: cargo check --manifest-path fuzz/Cargo.toml
