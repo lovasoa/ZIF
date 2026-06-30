@@ -18,3 +18,10 @@ path = "fuzz_targets/reader_ops.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "metadata"
+path = "fuzz_targets/metadata.rs"
+test = false
+doc = false
+bench = false

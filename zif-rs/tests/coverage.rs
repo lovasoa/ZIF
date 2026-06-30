@@ -116,6 +116,56 @@ fn reader_requests_referenced_arrays_incrementally() {
 }
 
 #[test]
+fn reader_accepts_full_file_after_prefix_chunk() {
+    let file = reader_file((16, 16), (16, 16), &[((0, 0), b"tile")]);
+    let mut reader = Reader::new();
+
+    assert!(matches!(
+        reader
+            .advance(Chunk::from_start(0, file[..16].to_vec()).unwrap())
+            .unwrap(),
+        ReadStatus::NeedMore(_)
+    ));
+    assert_eq!(
+        reader
+            .advance(Chunk::from_start(0, file.clone()).unwrap())
+            .unwrap(),
+        ReadStatus::Done
+    );
+    assert_eq!(reader.zif().unwrap().dimensions(), (16, 16));
+}
+
+#[test]
+fn reader_does_not_treat_start_zero_prefix_as_complete_file() {
+    let file = reader_file((16, 16), (16, 16), &[((0, 0), b"tile")]);
+    let mut reader = Reader::new();
+
+    let status = reader
+        .advance(Chunk::from_start(0, file[..16].to_vec()).unwrap())
+        .unwrap();
+    let ReadStatus::NeedMore(req) = status else {
+        panic!("expected directory request");
+    };
+    let range = req.range();
+    let start = usize::try_from(range.start).unwrap();
+    let end = usize::try_from(range.end).unwrap();
+
+    let mut status = reader
+        .advance(Chunk::from_start(range.start, file[start..end].to_vec()).unwrap())
+        .unwrap();
+    while let ReadStatus::NeedMore(req) = status {
+        let range = req.range();
+        let start = usize::try_from(range.start).unwrap();
+        let end = usize::try_from(range.end).unwrap();
+        status = reader
+            .advance(Chunk::from_start(range.start, file[start..end].to_vec()).unwrap())
+            .unwrap();
+    }
+    assert_eq!(status, ReadStatus::Done);
+    assert_eq!(reader.zif().unwrap().dimensions(), (16, 16));
+}
+
+#[test]
 fn tile_iteration_is_row_major_and_clips_edges() {
     let file = reader_file((40, 40), (16, 16), &[((0, 0), b"a")]);
     let zif = parse(&file);
@@ -213,6 +263,59 @@ fn set_dimensions_preserves_existing_tile_positions() {
     assert_eq!(
         &file[usize::try_from(bytes.start).unwrap()..usize::try_from(bytes.end).unwrap()],
         b"old"
+    );
+}
+
+#[test]
+fn set_dimensions_before_first_tile_does_not_overlap_later_tile_payload() {
+    let mut writer = Writer::new()
+        .dimensions((16, 16))
+        .tile_size((16, 16))
+        .unwrap()
+        .codec(Codec::Jpeg)
+        .color_model(ColorModel::YCbCr)
+        .channels(3)
+        .unwrap()
+        .build()
+        .unwrap();
+    let mut file = Vec::new();
+
+    apply(&mut file, writer.set_dimensions((32, 16)).unwrap());
+    apply(&mut file, writer.put_tile((1, 0), b"new").unwrap());
+
+    let zif = parse(&file);
+    let tile = zif.level(0).unwrap().tile(1, 0).unwrap();
+    let bytes = tile.bytes();
+    assert_eq!(
+        &file[usize::try_from(bytes.start).unwrap()..usize::try_from(bytes.end).unwrap()],
+        b"new"
+    );
+}
+
+#[test]
+fn writer_replacing_tile_after_resize_points_to_new_payload() {
+    let mut writer = Writer::new()
+        .dimensions((16, 16))
+        .tile_size((16, 16))
+        .unwrap()
+        .codec(Codec::Jpeg)
+        .color_model(ColorModel::YCbCr)
+        .channels(3)
+        .unwrap()
+        .build()
+        .unwrap();
+    let mut file = Vec::new();
+
+    apply(&mut file, writer.put_tile((0, 0), b"old").unwrap());
+    apply(&mut file, writer.set_dimensions((32, 16)).unwrap());
+    apply(&mut file, writer.put_tile((0, 0), b"new payload").unwrap());
+
+    let zif = parse(&file);
+    let tile = zif.level(0).unwrap().tile(0, 0).unwrap();
+    let bytes = tile.bytes();
+    assert_eq!(
+        &file[usize::try_from(bytes.start).unwrap()..usize::try_from(bytes.end).unwrap()],
+        b"new payload"
     );
 }
 

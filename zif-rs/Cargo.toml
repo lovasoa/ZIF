@@ -20,6 +20,9 @@ reqwest = ["std", "dep:reqwest"]
 tokio = { version = "1", optional = true, default-features = false, features = ["fs", "io-util"] }
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["blocking", "rustls-tls"] }
 
+[dev-dependencies]
+libtiff-sys = "0.1"
+
 [lints.rust]
 unsafe_code = "forbid"
 

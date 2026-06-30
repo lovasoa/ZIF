@@ -19,7 +19,6 @@ pub enum ReadStatus {
 pub struct Reader {
     cache: Vec<Cached>,
     zif: Option<Zif>,
-    file_len: Option<u64>,
 }
 
 impl Default for Reader {
@@ -41,7 +40,6 @@ impl Reader {
         Self {
             cache: Vec::new(),
             zif: None,
-            file_len: None,
         }
     }
 
@@ -59,9 +57,6 @@ impl Reader {
     /// ```
     pub fn advance<B: AsRef<[u8]>>(&mut self, chunk: Chunk<B>) -> Result<ReadStatus> {
         if !chunk.bytes().is_empty() {
-            if chunk.start() == 0 {
-                self.file_len = Some(chunk.end());
-            }
             self.insert_chunk(chunk.range(), chunk.bytes())?;
         }
         match self.try_parse()? {
@@ -256,7 +251,7 @@ impl Reader {
             ArrayParse::Done(v) => v,
             ArrayParse::Need(r) => return Ok(LevelParse::Need(r)),
         };
-        if let Some(file_len) = self.file_len {
+        if let Some(file_len) = self.known_whole_file_len(&offsets, &counts) {
             for (&offset, &count) in offsets.iter().zip(&counts) {
                 if offset
                     .checked_add(u64::from(count))
@@ -279,6 +274,21 @@ impl Reader {
             offsets,
             counts,
         )?))
+    }
+
+    fn known_whole_file_len(&self, offsets: &[u64], counts: &[u32]) -> Option<u64> {
+        let prefix_len = self.cache.iter().find(|c| c.start == 0)?.end();
+        let max_tile_end = offsets
+            .iter()
+            .zip(counts)
+            .map(|(&offset, &count)| offset.saturating_add(u64::from(count)))
+            .max()
+            .unwrap_or(0);
+        if max_tile_end <= prefix_len || self.cache.iter().all(|c| c.start == 0) {
+            Some(prefix_len)
+        } else {
+            None
+        }
     }
 
     fn read_u64_array(&self, entry: &Entry) -> Result<ArrayParse<u64>> {
