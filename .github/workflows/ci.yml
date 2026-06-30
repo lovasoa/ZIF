@@ -53,3 +53,11 @@ jobs:
 
       - name: Fuzz target type-check
         run: cargo check --manifest-path fuzz/Cargo.toml
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Run fuzz targets
+        run: |
+          cargo fuzz run metadata -- -max_total_time=60
+          cargo fuzz run reader_ops -- -max_total_time=60
