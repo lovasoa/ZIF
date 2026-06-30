@@ -236,6 +236,10 @@ The color model is recorded as a 16-bit code:
 - 1-channel tiles use WhiteIsZero or BlackIsZero.
 - 3-channel JPEG tiles use YCbCr or RGB. For YCbCr, chroma subsampling 4:4:4
   or 4:2:0 is permitted. For RGB, subsampling MUST be 4:4:4.
+- Compatibility note: non-conforming files have been observed in the wild with
+  YCbCr 4:2:2 subsampling. Readers MAY accept such files for recovery or
+  faithful rewriting, but conforming writers MUST NOT create them as new ZIF
+  files.
 - RGB JPEG is an Advanced feature; Baseline JPEG uses YCbCr for 3-channel
   images.
 

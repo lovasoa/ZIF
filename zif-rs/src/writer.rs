@@ -40,6 +40,7 @@ pub struct WriterBuilder {
     codec: Option<Codec>,
     color_model: Option<ColorModel>,
     channels: Option<u16>,
+    ycbcr_subsampling: Option<(u16, u16)>,
 }
 
 impl WriterBuilder {
@@ -111,6 +112,29 @@ impl WriterBuilder {
         Ok(self)
     }
 
+    /// Sets a spec-conforming YCbCr subsampling value for JPEG YCbCr tiles.
+    ///
+    /// ```
+    /// let builder = zif::Writer::new().ycbcr_subsampling((2, 2))?;
+    /// let _ = builder;
+    /// # Ok::<(), zif::Error>(())
+    /// ```
+    pub fn ycbcr_subsampling(mut self, subsampling: (u16, u16)) -> Result<Self> {
+        validate_ycbcr_subsampling(subsampling)?;
+        self.ycbcr_subsampling = Some(subsampling);
+        Ok(self)
+    }
+
+    /// Preserves a nonstandard YCbCr subsampling value while rewriting an existing file.
+    ///
+    /// This is a compatibility escape hatch for files described in the non-conformance
+    /// note in specification section 6.6. New files should use [`Self::ycbcr_subsampling`].
+    pub fn preserve_nonstandard_ycbcr_subsampling(mut self, subsampling: (u16, u16)) -> Result<Self> {
+        validate_nonstandard_ycbcr_subsampling(subsampling)?;
+        self.ycbcr_subsampling = Some(subsampling);
+        Ok(self)
+    }
+
     /// Builds a Sans-IO writer.
     ///
     /// ```
@@ -165,6 +189,7 @@ impl WriterBuilder {
             codec,
             color_model,
             channels,
+            ycbcr_subsampling: self.ycbcr_subsampling.unwrap_or((2, 2)),
             file_len: 0,
             initialized: false,
         })
@@ -177,6 +202,7 @@ pub struct Writer {
     codec: Codec,
     color_model: ColorModel,
     channels: u16,
+    ycbcr_subsampling: (u16, u16),
     file_len: u64,
     initialized: bool,
 }
@@ -196,6 +222,7 @@ impl Writer {
             codec: None,
             color_model: None,
             channels: None,
+            ycbcr_subsampling: None,
         }
     }
 
@@ -413,6 +440,7 @@ impl Writer {
                 self.codec,
                 self.color_model,
                 self.channels,
+                self.ycbcr_subsampling,
             )?;
             out.extend_from_slice(&dir);
         }
@@ -553,6 +581,22 @@ fn validate_color_channels(color: ColorModel, channels: u16) -> Result<()> {
     }
 }
 
+fn validate_ycbcr_subsampling(subsampling: (u16, u16)) -> Result<()> {
+    if subsampling == (1, 1) || subsampling == (2, 2) {
+        return Ok(());
+    }
+    Err(Error::InvalidInput("unsupported YCbCr subsampling"))
+}
+
+fn validate_nonstandard_ycbcr_subsampling(subsampling: (u16, u16)) -> Result<()> {
+    if subsampling.0 == 0 || subsampling.1 == 0 {
+        return Err(Error::InvalidInput(
+            "YCbCr subsampling factors must be non-zero",
+        ));
+    }
+    Ok(())
+}
+
 fn encode_directory(
     level: &LevelState,
     offsets_pos: Option<u64>,
@@ -561,6 +605,7 @@ fn encode_directory(
     codec: Codec,
     color: ColorModel,
     channels: u16,
+    ycbcr_subsampling: (u16, u16),
 ) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     let has_ycbcr_subsampling = codec == Codec::Jpeg && color == ColorModel::YCbCr;
@@ -590,7 +635,11 @@ fn encode_directory(
     entry_u64_array(&mut out, TAG_TILE_OFFSETS, &level.offsets, offsets_pos)?;
     entry_u32_array(&mut out, TAG_TILE_COUNTS, &level.counts, counts_pos)?;
     if has_ycbcr_subsampling {
-        entry_u16_array_inline(&mut out, TAG_YCBCR_SUBSAMPLING, &[2, 2]);
+        entry_u16_array_inline(
+            &mut out,
+            TAG_YCBCR_SUBSAMPLING,
+            &[ycbcr_subsampling.0, ycbcr_subsampling.1],
+        );
     }
     push_u64(&mut out, next);
     Ok(out)

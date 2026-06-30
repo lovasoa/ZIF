@@ -494,6 +494,7 @@ pub struct Level {
     pub(crate) codec: Codec,
     pub(crate) color_model: ColorModel,
     pub(crate) channels: u16,
+    pub(crate) ycbcr_subsampling: Option<(u16, u16)>,
     pub(crate) offsets: Vec<u64>,
     pub(crate) counts: Vec<u32>,
 }
@@ -508,6 +509,7 @@ impl Level {
         codec: Codec,
         color_model: ColorModel,
         channels: u16,
+        ycbcr_subsampling: Option<(u16, u16)>,
         offsets: Vec<u64>,
         counts: Vec<u32>,
     ) -> Result<Self> {
@@ -539,6 +541,7 @@ impl Level {
             codec,
             color_model,
             channels,
+            ycbcr_subsampling,
             offsets,
             counts,
         })
@@ -606,6 +609,18 @@ impl Level {
     /// ```
     pub fn channels(&self) -> u16 {
         self.channels
+    }
+
+    /// Returns the YCbCr subsampling factors recorded for JPEG YCbCr tiles.
+    ///
+    /// ```
+    /// let zif = zif::doctest::sample_zif();
+    /// let level = zif.level(0)?;
+    /// assert_eq!(level.ycbcr_subsampling(), Some((2, 2)));
+    /// # Ok::<(), zif::Error>(())
+    /// ```
+    pub fn ycbcr_subsampling(&self) -> Option<(u16, u16)> {
+        self.ycbcr_subsampling
     }
 
     /// Returns a tile by column and row.

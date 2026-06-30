@@ -4,7 +4,7 @@ use core::ops::Range;
 use crate::format::{
     read_u16, read_u32, read_u64, tile_count, ENTRY_LEN, TAG_BITS, TAG_CHANNELS, TAG_CODEC,
     TAG_COLOR, TAG_HEIGHT, TAG_INTERLEAVE, TAG_TILE_COUNTS, TAG_TILE_HEIGHT, TAG_TILE_OFFSETS,
-    TAG_TILE_WIDTH, TAG_WIDTH, TYPE_U16, TYPE_U32, TYPE_U64,
+    TAG_TILE_WIDTH, TAG_WIDTH, TAG_YCBCR_SUBSAMPLING, TYPE_U16, TYPE_U32, TYPE_U64,
 };
 use crate::model::{Chunk, Codec, ColorModel, Level, Request, Zif, ZifView};
 use crate::{Error, Result};
@@ -267,6 +267,25 @@ impl Reader {
             ArrayParse::Done(v) => v,
             ArrayParse::Need(r) => return Ok(LevelParse::Need(r)),
         };
+        // Compatibility path for non-conforming files noted in specification section 6.6:
+        // preserve the recorded subsampling so a tile-for-tile rewrite can remain readable.
+        let ycbcr_subsampling = if codec == Codec::Jpeg && color_model == ColorModel::YCbCr {
+            match find_optional(entries, TAG_YCBCR_SUBSAMPLING) {
+                Some(entry) => {
+                    if entry.ty != TYPE_U16 || entry.count != 2 {
+                        return Err(Error::MalformedFile("invalid YCbCr subsampling entry"));
+                    }
+                    let values = match self.read_u16_array(entry)? {
+                        ArrayParse::Done(v) => v,
+                        ArrayParse::Need(r) => return Ok(LevelParse::Need(r)),
+                    };
+                    Some((values[0], values[1]))
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
         for (&offset, &count) in offsets.iter().zip(&counts) {
             offset
                 .checked_add(u64::from(count))
@@ -289,6 +308,7 @@ impl Reader {
             codec,
             color_model,
             channels,
+            ycbcr_subsampling,
             offsets,
             counts,
         )?))
@@ -538,10 +558,11 @@ fn parse_entries(bytes: &[u8], count: u64) -> Result<(Vec<Entry>, u64)> {
 }
 
 fn find(entries: &[Entry], code: u16) -> Result<&Entry> {
-    entries
-        .iter()
-        .find(|e| e.code == code)
-        .ok_or(Error::MalformedFile("missing required entry"))
+    find_optional(entries, code).ok_or(Error::MalformedFile("missing required entry"))
+}
+
+fn find_optional(entries: &[Entry], code: u16) -> Option<&Entry> {
+    entries.iter().find(|e| e.code == code)
 }
 
 fn scalar_u16(entries: &[Entry], code: u16) -> Result<u16> {
