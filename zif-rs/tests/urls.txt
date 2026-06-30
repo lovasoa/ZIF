@@ -1,0 +1,66 @@
+# ZIF image file URLs collected from lovasoa/dezoomify and lovasoa/dezoomify-rs issues
+
+# rgada.info (Russian State Archive of Ancient Acts)
+# issues: dezoomify#486, dezoomify#516
+http://rgada.info/opisi/210-ukaz_2/0001.zif
+http://rgada.info/opisi/210-ukaz_2/0002.zif
+http://rgada.info/opisi/210-ukaz_2/0003.zif
+http://rgada.info/opisi/210-ukaz_2/0004.zif
+http://rgada.info/opisi/210-ukaz_2/0005.zif
+http://rgada.info/opisi/210-ukaz_3/0001.zif
+http://rgada.info/opisi/210-opis_1/0001.zif
+http://rgada.info/opisi/210-opis_2/0001.zif
+http://rgada.info/opisi/210-opis_3/0001.zif
+http://rgada.info/opisi/210-opis_4/0001.zif
+http://rgada.info/opisi/210-opis_5/0001.zif
+http://rgada.info/opisi/210-opis_1/0002.zif
+http://rgada.info/opisi/210-opis_6/0001.zif
+http://rgada.info/opisi/210-opis_6/0002.zif
+http://rgada.info/opisi/210-opis_8/0001.zif
+http://rgada.info/opisi/210-opis_9/0001.zif
+http://rgada.info/opisi/210-opis_10/0001.zif
+http://rgada.info/opisi/210-ukaz_4/0001.zif
+http://rgada.info/opisi/210-ukaz_5/0001.zif
+http://rgada.info/opisi/210-ukaz_6/0001.zif
+http://rgada.info/opisi/210-ukaz_7/0001.zif
+http://rgada.info/opisi/210-ukaz_8/0001.zif
+http://rgada.info/opisi/210-ukaz_3/0002.zif
+http://rgada.info/opisi/210-ukaz_3/0003.zif
+http://rgada.info/opisi/210-opis_11/0001.zif
+
+# swaen.com (Paulus Swaen Rare Antique Maps)
+# issues: dezoomify#611, dezoomify#335, dezoomify#36, dezoomify#126
+https://www.swaen.com/uploads_zif/44381A.zif
+https://www.swaen.com/uploads_zif/44381B.zif
+https://www.swaen.com/uploads_zif/44381C.zif
+https://www.swaen.com/uploads_zif/28828.zif
+https://www.swaen.com/uploads_zif/28832.zif
+https://www.swaen.com/uploads_zif/28833.zif
+https://www.swaen.com/uploads_zif/28905.zif
+https://www.swaen.com/uploads_zif/28906.zif
+https://www.swaen.com/uploads_zif/28907.zif
+https://www.swaen.com/uploads_zif/28908.zif
+https://www.swaen.com/uploads_zif/31329.zif
+
+# lapis.nichibun.ac.jp (International Research Center for Japanese Studies)
+# issue: dezoomify#858, dezoomify-rs#282
+https://lapis.nichibun.ac.jp/chizu/zoomify/zif/002469070_o.zif
+https://lapis.nichibun.ac.jp/chizu/zoomify/zif/005003959_o.zif
+
+# host.themorgan.org (The Morgan Library & Museum)
+# issues: dezoomify#489, dezoomify#629, dezoomify#222, dezoomify#261,
+#         dezoomify-rs#268, dezoomify-rs#153
+https://host.themorgan.org/drawings/images/187345v_0001.zif
+https://host.themorgan.org/drawings/images/187345v_0002.zif
+https://host.themorgan.org/drawings/images/247253v_0001.zif
+
+# porthopehistory.com
+# issue: dezoomify#793
+https://www.porthopehistory.com/ccreightonalbum/image1.zif
+https://www.porthopehistory.com/ccreightonalbum/image2.zif
+https://www.porthopehistory.com/ccreightonalbum/image3.zif
+https://www.porthopehistory.com/ccreightonalbum/image4.zif
+https://www.porthopehistory.com/ccreightonalbum/image5.zif
+https://www.porthopehistory.com/ccreightonalbum/image6.zif
+https://www.porthopehistory.com/ccreightonalbum/image7.zif
+https://www.porthopehistory.com/ccreightonalbum/image8.zif
