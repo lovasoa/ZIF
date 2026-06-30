@@ -59,8 +59,14 @@ fn multi_level_writer_output_is_readable_by_libtiff() {
         .build()
         .unwrap();
     let mut file = Vec::new();
-    apply(&mut file, writer.put_tile_at_level(0, (0, 0), b"base").unwrap());
-    apply(&mut file, writer.put_tile_at_level(1, (0, 0), b"top").unwrap());
+    apply(
+        &mut file,
+        writer.put_tile_at_level(0, (0, 0), b"base").unwrap(),
+    );
+    apply(
+        &mut file,
+        writer.put_tile_at_level(1, (0, 0), b"top").unwrap(),
+    );
 
     assert_libtiff_reads(&file, &[(32, 32, 16, 16, 3), (16, 16, 16, 16, 3)]);
 }
@@ -75,12 +81,18 @@ fn assert_libtiff_reads(file: &[u8], expected: &[(u32, u32, u32, u32, u16)]) {
         let tiff = libtiff_sys::TIFFOpen(path.as_ptr(), mode.as_ptr());
         assert!(!tiff.is_null(), "libtiff failed to open writer output");
 
-        for (directory, &(width, height, tile_width, tile_height, samples)) in expected.iter().enumerate() {
+        for (directory, &(width, height, tile_width, tile_height, samples)) in
+            expected.iter().enumerate()
+        {
             assert_u32_tag(tiff, libtiff_sys::TIFFTAG_IMAGEWIDTH, width);
             assert_u32_tag(tiff, libtiff_sys::TIFFTAG_IMAGELENGTH, height);
             assert_u16_tag(tiff, libtiff_sys::TIFFTAG_BITSPERSAMPLE, 8);
             assert_u16_tag(tiff, libtiff_sys::TIFFTAG_SAMPLESPERPIXEL, samples);
-            assert_u16_tag(tiff, libtiff_sys::TIFFTAG_PLANARCONFIG, libtiff_sys::PLANARCONFIG_CONTIG as u16);
+            assert_u16_tag(
+                tiff,
+                libtiff_sys::TIFFTAG_PLANARCONFIG,
+                u16::try_from(libtiff_sys::PLANARCONFIG_CONTIG).unwrap(),
+            );
             assert_u32_tag(tiff, libtiff_sys::TIFFTAG_TILEWIDTH, tile_width);
             assert_u32_tag(tiff, libtiff_sys::TIFFTAG_TILELENGTH, tile_height);
             assert_ne!(libtiff_sys::TIFFIsTiled(tiff), 0);

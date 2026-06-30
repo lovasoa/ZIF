@@ -127,9 +127,7 @@ fn reader_accepts_full_file_after_prefix_chunk() {
         ReadStatus::NeedMore(_)
     ));
     assert_eq!(
-        reader
-            .advance(Chunk::from_start(0, file.clone()).unwrap())
-            .unwrap(),
+        reader.advance(Chunk::from_start(0, file).unwrap()).unwrap(),
         ReadStatus::Done
     );
     assert_eq!(reader.zif().unwrap().dimensions(), (16, 16));
