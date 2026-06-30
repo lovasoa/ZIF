@@ -1,12 +1,18 @@
 #![no_main]
+#![allow(unsafe_code)]
 
 use libfuzzer_sys::arbitrary::{Arbitrary, Unstructured};
 use libfuzzer_sys::fuzz_target;
+use std::ffi::CString;
+use std::fs;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use zif::{
     ChainKind, Chunk, Codec, ColorModel, LevelSpec, ReadStatus, Reader, WriteBatch, WriteOp,
     Writer,
 };
+
+static NEXT_LIBTIFF_FILE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Arbitrary, Debug)]
 struct Input {
@@ -198,6 +204,7 @@ fuzz_target!(|data: &[u8]| {
 
     if !file.is_empty() {
         assert_full_parse_invariants(&file, &expected, color_model, channels);
+        assert_libtiff_reads_writer_output(&file, &expected, color_model, channels);
     }
 });
 
@@ -412,6 +419,69 @@ fn assert_full_parse_invariants(
             ),
         );
     }
+}
+
+fn assert_libtiff_reads_writer_output(
+    file: &[u8],
+    expected: &[ExpectedLevel],
+    color_model: ColorModel,
+    channels: u16,
+) {
+    if expected.len() > 4 || file.len() > 8192 {
+        return;
+    }
+    let path = std::env::temp_dir().join(format!(
+        "zif-fuzz-libtiff-{}.tif",
+        NEXT_LIBTIFF_FILE.fetch_add(1, Ordering::Relaxed)
+    ));
+    if fs::write(&path, file).is_err() {
+        return;
+    }
+    let path = CString::new(path.to_string_lossy().as_bytes()).expect("temp path has no nul");
+    let mode = CString::new("r").expect("mode has no nul");
+    unsafe {
+        let tiff = libtiff_sys::TIFFOpen(path.as_ptr(), mode.as_ptr());
+        assert!(!tiff.is_null(), "libtiff failed to open writer output");
+        for (index, exp) in expected.iter().enumerate() {
+            assert_libtiff_u32(tiff, libtiff_sys::TIFFTAG_IMAGEWIDTH, exp.dimensions.0 as u32);
+            assert_libtiff_u32(tiff, libtiff_sys::TIFFTAG_IMAGELENGTH, exp.dimensions.1 as u32);
+            assert_libtiff_u16(tiff, libtiff_sys::TIFFTAG_BITSPERSAMPLE, 8);
+            assert_libtiff_u16(tiff, libtiff_sys::TIFFTAG_SAMPLESPERPIXEL, channels);
+            assert_libtiff_u16(tiff, libtiff_sys::TIFFTAG_PHOTOMETRIC, photometric(color_model));
+            assert_libtiff_u32(tiff, libtiff_sys::TIFFTAG_TILEWIDTH, exp.tile_size.0 as u32);
+            assert_libtiff_u32(tiff, libtiff_sys::TIFFTAG_TILELENGTH, exp.tile_size.1 as u32);
+            assert_ne!(libtiff_sys::TIFFIsTiled(tiff), 0);
+            assert_eq!(
+                libtiff_sys::TIFFNumberOfTiles(tiff),
+                (exp.tiles_across * exp.tiles_down) as u32
+            );
+            if index + 1 < expected.len() {
+                assert_ne!(libtiff_sys::TIFFReadDirectory(tiff), 0);
+            }
+        }
+        libtiff_sys::TIFFClose(tiff);
+    }
+}
+
+fn photometric(color_model: ColorModel) -> u16 {
+    match color_model {
+        ColorModel::WhiteIsZero => libtiff_sys::PHOTOMETRIC_MINISWHITE as u16,
+        ColorModel::BlackIsZero => libtiff_sys::PHOTOMETRIC_MINISBLACK as u16,
+        ColorModel::Rgb => libtiff_sys::PHOTOMETRIC_RGB as u16,
+        ColorModel::YCbCr => libtiff_sys::PHOTOMETRIC_YCBCR as u16,
+    }
+}
+
+unsafe fn assert_libtiff_u16(tiff: *mut libtiff_sys::TIFF, tag: u32, expected: u16) {
+    let mut value = 0u16;
+    assert_ne!(libtiff_sys::TIFFGetField(tiff, tag, &mut value), 0);
+    assert_eq!(value, expected);
+}
+
+unsafe fn assert_libtiff_u32(tiff: *mut libtiff_sys::TIFF, tag: u32, expected: u32) {
+    let mut value = 0u32;
+    assert_ne!(libtiff_sys::TIFFGetField(tiff, tag, &mut value), 0);
+    assert_eq!(value, expected);
 }
 
 fn assert_parsed_zif_invariants(file: &[u8], zif: &zif::Zif) {

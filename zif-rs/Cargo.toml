@@ -23,9 +23,6 @@ reqwest = { version = "0.12", optional = true, default-features = false, feature
 [dev-dependencies]
 libtiff-sys = "0.1"
 
-[lints.rust]
-unsafe_code = "forbid"
-
 [lints.clippy]
 all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
