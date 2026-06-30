@@ -380,6 +380,91 @@ impl Zif {
     }
 }
 
+/// Borrowed view of parsed ZIF metadata.
+///
+/// A view returned while reading is in progress may describe only the fully
+/// parsed prefix of the directory chain. After the reader returns `Done`, the
+/// same methods describe the complete file.
+#[derive(Debug, Clone, Copy)]
+pub struct ZifView<'a> {
+    zif: &'a Zif,
+}
+
+impl<'a> ZifView<'a> {
+    pub(crate) fn new(zif: &'a Zif) -> Self {
+        Self { zif }
+    }
+
+    /// Returns the underlying owned metadata object.
+    pub fn as_zif(&self) -> &'a Zif {
+        self.zif
+    }
+
+    /// Returns base-level dimensions as `(width, height)`.
+    pub fn dimensions(&self) -> (u64, u64) {
+        self.zif.dimensions()
+    }
+
+    /// Returns the base-level width in pixels.
+    pub fn width(&self) -> u64 {
+        self.zif.width()
+    }
+
+    /// Returns the base-level height in pixels.
+    pub fn height(&self) -> u64 {
+        self.zif.height()
+    }
+
+    /// Returns the number of parsed image directories/levels.
+    pub fn level_count(&self) -> usize {
+        self.zif.level_count()
+    }
+
+    /// Returns all parsed levels.
+    pub fn levels(&self) -> &'a [Level] {
+        self.zif.levels()
+    }
+
+    /// Returns a level by index.
+    pub fn level(&self, index: usize) -> Result<&'a Level> {
+        self.zif.level(index)
+    }
+
+    /// Returns the base-level codec.
+    pub fn codec(&self) -> Codec {
+        self.zif.codec()
+    }
+
+    /// Returns the base-level color model.
+    pub fn color_model(&self) -> ColorModel {
+        self.zif.color_model()
+    }
+
+    /// Returns the base-level channel count.
+    pub fn channels(&self) -> u16 {
+        self.zif.channels()
+    }
+
+    /// Returns how the parsed directory chain prefix is classified.
+    pub fn chain_kind(&self) -> ChainKind {
+        self.zif.chain_kind()
+    }
+
+    /// Iterates every tile in a level in row-major order.
+    pub fn get_level_tiles(&self, level: usize) -> Result<LevelTiles<'a>> {
+        self.zif.get_level_tiles(level)
+    }
+
+    /// Iterates tiles intersecting a pixel region at a level.
+    pub fn get_cropped_level_tiles(
+        &self,
+        level: usize,
+        region: (Range<u64>, Range<u64>),
+    ) -> Result<LevelTiles<'a>> {
+        self.zif.get_cropped_level_tiles(level, region)
+    }
+}
+
 /// Metadata for one image level.
 ///
 /// ```

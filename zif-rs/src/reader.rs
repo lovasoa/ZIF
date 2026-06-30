@@ -6,13 +6,18 @@ use crate::format::{
     TAG_COLOR, TAG_HEIGHT, TAG_INTERLEAVE, TAG_TILE_COUNTS, TAG_TILE_HEIGHT, TAG_TILE_OFFSETS,
     TAG_TILE_WIDTH, TAG_WIDTH, TYPE_U16, TYPE_U32, TYPE_U64,
 };
-use crate::model::{Chunk, Codec, ColorModel, Level, Request, Zif};
+use crate::model::{Chunk, Codec, ColorModel, Level, Request, Zif, ZifView};
 use crate::{Error, Result};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ReadStatus {
-    NeedMore(Request),
-    Done,
+#[derive(Debug, Clone)]
+pub enum ReadStatus<'a> {
+    Need {
+        req: Request,
+        zif: Option<ZifView<'a>>,
+    },
+    Done {
+        zif: ZifView<'a>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -33,7 +38,7 @@ impl Reader {
     /// ```
     /// let mut reader = zif::Reader::new();
     /// let status = reader.advance(zif::Chunk::default())?;
-    /// assert!(matches!(status, zif::ReadStatus::NeedMore(_)));
+    /// assert!(matches!(status, zif::ReadStatus::Need { .. }));
     /// # Ok::<(), zif::Error>(())
     /// ```
     pub fn new() -> Self {
@@ -52,23 +57,37 @@ impl Reader {
     /// let file = zif::doctest::sample_file();
     /// let mut reader = zif::Reader::new();
     /// let status = reader.advance(zif::Chunk::from_start(0, file)?)?;
-    /// assert_eq!(status, zif::ReadStatus::Done);
+    /// assert!(matches!(status, zif::ReadStatus::Done { .. }));
     /// # Ok::<(), zif::Error>(())
     /// ```
-    pub fn advance<B: AsRef<[u8]>>(&mut self, chunk: Chunk<B>) -> Result<ReadStatus> {
+    pub fn advance<B: AsRef<[u8]>>(&mut self, chunk: Chunk<B>) -> Result<ReadStatus<'_>> {
         if !chunk.bytes().is_empty() {
             self.insert_chunk(chunk.range(), chunk.bytes())?;
         }
         match self.try_parse()? {
             Parse::Done(zif) => {
                 self.zif = Some(zif);
-                Ok(ReadStatus::Done)
+                Ok(ReadStatus::Done {
+                    zif: ZifView::new(self.zif.as_ref().expect("done parser produced zif")),
+                })
             }
-            Parse::Need(range) => Ok(ReadStatus::NeedMore(Request::new(range)?)),
+            Parse::Need { range, partial } => {
+                if let Some(zif) = partial {
+                    self.zif = Some(zif);
+                }
+                Ok(ReadStatus::Need {
+                    req: Request::new(range)?,
+                    zif: self.zif.as_ref().map(ZifView::new),
+                })
+            }
         }
     }
 
-    /// Returns the parsed ZIF metadata after the reader is done.
+    /// Returns the latest parsed ZIF metadata.
+    ///
+    /// If the previous `advance` returned `Need`, this may be a partial prefix
+    /// of the directory chain. After `advance` returns `Done`, this is the
+    /// complete file metadata.
     ///
     /// ```
     /// let file = zif::doctest::sample_file();
@@ -142,7 +161,7 @@ impl Reader {
     fn try_parse(&self) -> Result<Parse> {
         let header = match self.require(0..16) {
             Ok(h) => h,
-            Err(r) => return Ok(Parse::Need(r)),
+            Err(r) => return Ok(need(r, &[])),
         };
         let mut first8 = [0u8; 8];
         first8.copy_from_slice(&header[..8]);
@@ -166,7 +185,7 @@ impl Reader {
                 .ok_or(Error::MalformedFile("directory range overflow"))?;
             let count_bytes = match self.require(count_range) {
                 Ok(b) => b,
-                Err(r) => return Ok(Parse::Need(r)),
+                Err(r) => return Ok(need(r, &levels)),
             };
             let entry_count = read_u64(count_bytes, 0)?;
             if entry_count > 4096 {
@@ -185,12 +204,12 @@ impl Reader {
                 .ok_or(Error::MalformedFile("directory range overflow"))?;
             let body = match self.require(body_range) {
                 Ok(b) => b,
-                Err(r) => return Ok(Parse::Need(r)),
+                Err(r) => return Ok(need(r, &levels)),
             };
             let (entries, next) = parse_entries(body, entry_count)?;
             let level = match self.parse_level(levels.len(), &entries)? {
                 LevelParse::Done(level) => level,
-                LevelParse::Need(range) => return Ok(Parse::Need(range)),
+                LevelParse::Need(range) => return Ok(need(range, &levels)),
             };
             levels.push(level);
             dir = next;
@@ -204,16 +223,13 @@ impl Reader {
     fn parse_level(&self, index: usize, entries: &[Entry]) -> Result<LevelParse> {
         let width = scalar_u32_or_u16(entries, TAG_WIDTH)?;
         let height = scalar_u32_or_u16(entries, TAG_HEIGHT)?;
-        let bits = scalar_u16(entries, TAG_BITS)?;
-        if bits != 8 {
-            return Err(Error::MalformedFile("invalid bit depth"));
-        }
         let codec = Codec::from_code(scalar_u16(entries, TAG_CODEC)?)?;
         let color_model = ColorModel::from_code(scalar_u16(entries, TAG_COLOR)?)?;
         let channels = scalar_u16(entries, TAG_CHANNELS)?;
         if channels != 1 && channels != 3 {
             return Err(Error::MalformedFile("invalid channels"));
         }
+        self.validate_bits(entries, channels)?;
         match (channels, color_model) {
             (1, ColorModel::WhiteIsZero | ColorModel::BlackIsZero)
             | (3, ColorModel::Rgb | ColorModel::YCbCr) => {}
@@ -237,27 +253,29 @@ impl Reader {
         let (_, _, tile_count) = tile_count(width, height, tile_width, tile_height)?;
         let offsets_entry = find(entries, TAG_TILE_OFFSETS)?;
         let counts_entry = find(entries, TAG_TILE_COUNTS)?;
-        if offsets_entry.ty != TYPE_U64 || offsets_entry.count != tile_count {
+        if offsets_entry.count != tile_count {
             return Err(Error::MalformedFile("invalid tile offsets entry"));
         }
-        if counts_entry.ty != TYPE_U32 || counts_entry.count != tile_count {
+        if counts_entry.count != tile_count {
             return Err(Error::MalformedFile("invalid tile byte counts entry"));
         }
-        let offsets = match self.read_u64_array(offsets_entry)? {
+        let offsets = match self.read_offset_array(offsets_entry)? {
             ArrayParse::Done(v) => v,
             ArrayParse::Need(r) => return Ok(LevelParse::Need(r)),
         };
-        let counts = match self.read_u32_array(counts_entry)? {
+        let counts = match self.read_count_array(counts_entry)? {
             ArrayParse::Done(v) => v,
             ArrayParse::Need(r) => return Ok(LevelParse::Need(r)),
         };
-        if let Some(file_len) = self.known_whole_file_len(&offsets, &counts) {
+        for (&offset, &count) in offsets.iter().zip(&counts) {
+            offset
+                .checked_add(u64::from(count))
+                .ok_or(Error::MalformedFile("tile byte range overflows"))?;
+        }
+        if self.is_known_complete_file(&offsets, &counts) {
+            let file_len = self.cache.iter().find(|c| c.start == 0).unwrap().end();
             for (&offset, &count) in offsets.iter().zip(&counts) {
-                if offset
-                    .checked_add(u64::from(count))
-                    .ok_or(Error::MalformedFile("tile byte range overflows"))?
-                    > file_len
-                {
+                if offset + u64::from(count) > file_len {
                     return Err(Error::MalformedFile("tile byte range exceeds file length"));
                 }
             }
@@ -276,19 +294,34 @@ impl Reader {
         )?))
     }
 
-    fn known_whole_file_len(&self, offsets: &[u64], counts: &[u32]) -> Option<u64> {
-        let prefix_len = self.cache.iter().find(|c| c.start == 0)?.end();
+    fn validate_bits(&self, entries: &[Entry], channels: u16) -> Result<()> {
+        let entry = find(entries, TAG_BITS)?;
+        if entry.ty != TYPE_U16 || (entry.count != 1 && entry.count != u64::from(channels)) {
+            return Err(Error::MalformedFile("invalid bit depth entry"));
+        }
+        let bits = match self.read_u16_array(entry)? {
+            ArrayParse::Done(v) => v,
+            ArrayParse::Need(_) => return Err(Error::MalformedFile("invalid bit depth entry")),
+        };
+        if bits.iter().all(|&bits| bits == 8) {
+            Ok(())
+        } else {
+            Err(Error::MalformedFile("invalid bit depth"))
+        }
+    }
+
+    fn is_known_complete_file(&self, offsets: &[u64], counts: &[u32]) -> bool {
+        let Some(prefix) = self.cache.iter().find(|c| c.start == 0) else {
+            return false;
+        };
+        let prefix_len = prefix.end();
         let max_tile_end = offsets
             .iter()
             .zip(counts)
             .map(|(&offset, &count)| offset.saturating_add(u64::from(count)))
             .max()
             .unwrap_or(0);
-        if max_tile_end <= prefix_len || self.cache.iter().all(|c| c.start == 0) {
-            Some(prefix_len)
-        } else {
-            None
-        }
+        max_tile_end <= prefix_len
     }
 
     fn read_u64_array(&self, entry: &Entry) -> Result<ArrayParse<u64>> {
@@ -316,6 +349,80 @@ impl Reader {
             )?);
         }
         Ok(ArrayParse::Done(out))
+    }
+
+    fn read_offset_array(&self, entry: &Entry) -> Result<ArrayParse<u64>> {
+        match entry.ty {
+            TYPE_U32 => self.read_u32_as_u64_array(entry),
+            TYPE_U64 => self.read_u64_array(entry),
+            _ => Err(Error::MalformedFile("invalid tile offsets entry")),
+        }
+    }
+
+    fn read_count_array(&self, entry: &Entry) -> Result<ArrayParse<u32>> {
+        match entry.ty {
+            TYPE_U32 => self.read_u32_array(entry),
+            TYPE_U64 => self.read_u64_as_u32_array(entry),
+            _ => Err(Error::MalformedFile("invalid tile byte counts entry")),
+        }
+    }
+
+    fn read_u16_array(&self, entry: &Entry) -> Result<ArrayParse<u16>> {
+        if entry.count <= 4 {
+            let mut out = Vec::new();
+            for i in 0..entry.count {
+                out.push(read_u16(
+                    &entry.slot,
+                    usize::try_from(i * 2)
+                        .map_err(|_| Error::MalformedFile("array index overflow"))?,
+                )?);
+            }
+            return Ok(ArrayParse::Done(out));
+        }
+        let len = entry
+            .count
+            .checked_mul(2)
+            .ok_or(Error::MalformedFile("array length overflow"))?;
+        let offset = read_u64(&entry.slot, 0)?;
+        let range = offset
+            ..offset
+                .checked_add(len)
+                .ok_or(Error::MalformedFile("array range overflow"))?;
+        let bytes = match self.require(range) {
+            Ok(b) => b,
+            Err(r) => return Ok(ArrayParse::Need(r)),
+        };
+        let mut out = Vec::new();
+        for i in 0..entry.count {
+            out.push(read_u16(
+                bytes,
+                usize::try_from(i * 2).map_err(|_| Error::MalformedFile("array index overflow"))?,
+            )?);
+        }
+        Ok(ArrayParse::Done(out))
+    }
+
+    fn read_u32_as_u64_array(&self, entry: &Entry) -> Result<ArrayParse<u64>> {
+        match self.read_u32_array(entry)? {
+            ArrayParse::Done(values) => Ok(ArrayParse::Done(
+                values.into_iter().map(u64::from).collect(),
+            )),
+            ArrayParse::Need(range) => Ok(ArrayParse::Need(range)),
+        }
+    }
+
+    fn read_u64_as_u32_array(&self, entry: &Entry) -> Result<ArrayParse<u32>> {
+        match self.read_u64_array(entry)? {
+            ArrayParse::Done(values) => values
+                .into_iter()
+                .map(|value| {
+                    u32::try_from(value)
+                        .map_err(|_| Error::MalformedFile("tile byte count exceeds u32"))
+                })
+                .collect::<Result<Vec<_>>>()
+                .map(ArrayParse::Done),
+            ArrayParse::Need(range) => Ok(ArrayParse::Need(range)),
+        }
     }
 
     fn read_u32_array(&self, entry: &Entry) -> Result<ArrayParse<u32>> {
@@ -367,8 +474,18 @@ impl Cached {
 }
 
 enum Parse {
-    Need(Range<u64>),
+    Need {
+        range: Range<u64>,
+        partial: Option<Zif>,
+    },
     Done(Zif),
+}
+
+fn need(range: Range<u64>, levels: &[Level]) -> Parse {
+    Parse::Need {
+        range,
+        partial: (!levels.is_empty()).then(|| Zif::new(levels.to_vec())),
+    }
 }
 enum LevelParse {
     Need(Range<u64>),

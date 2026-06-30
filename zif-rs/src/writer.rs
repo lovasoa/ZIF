@@ -4,7 +4,7 @@ use core::num::NonZeroU64;
 use crate::format::{
     push_u16, push_u32, push_u64, tile_count, ENTRY_LEN, TAG_BITS, TAG_CHANNELS, TAG_CODEC,
     TAG_COLOR, TAG_HEIGHT, TAG_INTERLEAVE, TAG_TILE_COUNTS, TAG_TILE_HEIGHT, TAG_TILE_OFFSETS,
-    TAG_TILE_WIDTH, TAG_WIDTH, TYPE_U16, TYPE_U32, TYPE_U64,
+    TAG_TILE_WIDTH, TAG_WIDTH, TAG_YCBCR_SUBSAMPLING, TYPE_U16, TYPE_U32, TYPE_U64,
 };
 use crate::model::{Codec, ColorModel};
 use crate::{Error, Result};
@@ -429,7 +429,7 @@ impl Writer {
         }
         for i in 0..levels.len() {
             let dir_start = cursor;
-            let entry_count = 11usize;
+            let entry_count = directory_entry_count(self.codec, self.color_model);
             let next_pos = dir_start + 8 + entry_count * ENTRY_LEN;
             let next = if i + 1 < dir_offsets.len() {
                 dir_offsets[i + 1]
@@ -563,7 +563,11 @@ fn encode_directory(
     channels: u16,
 ) -> Result<Vec<u8>> {
     let mut out = Vec::new();
-    push_u64(&mut out, 11);
+    let has_ycbcr_subsampling = codec == Codec::Jpeg && color == ColorModel::YCbCr;
+    push_u64(
+        &mut out,
+        u64::try_from(directory_entry_count(codec, color)).unwrap(),
+    );
     entry_u32(
         &mut out,
         TAG_WIDTH,
@@ -583,10 +587,17 @@ fn encode_directory(
     entry_u16(&mut out, TAG_INTERLEAVE, 1);
     entry_u32(&mut out, TAG_TILE_WIDTH, level.spec.tile_size.0);
     entry_u32(&mut out, TAG_TILE_HEIGHT, level.spec.tile_size.1);
-    entry_u64_array(&mut out, TAG_TILE_OFFSETS, &level.offsets, offsets_pos)?;
     entry_u32_array(&mut out, TAG_TILE_COUNTS, &level.counts, counts_pos)?;
+    entry_u64_array(&mut out, TAG_TILE_OFFSETS, &level.offsets, offsets_pos)?;
+    if has_ycbcr_subsampling {
+        entry_u16_array_inline(&mut out, TAG_YCBCR_SUBSAMPLING, &[2, 2]);
+    }
     push_u64(&mut out, next);
     Ok(out)
+}
+
+fn directory_entry_count(codec: Codec, color: ColorModel) -> usize {
+    11 + usize::from(codec == Codec::Jpeg && color == ColorModel::YCbCr)
 }
 
 fn entry_header(out: &mut Vec<u8>, code: u16, ty: u16, count: u64) {
@@ -600,6 +611,17 @@ fn entry_u16(out: &mut Vec<u8>, code: u16, value: u16) {
     push_u16(out, value);
     out.extend_from_slice(&[0; 6]);
 }
+
+fn entry_u16_array_inline(out: &mut Vec<u8>, code: u16, values: &[u16]) {
+    entry_header(out, code, TYPE_U16, u64::try_from(values.len()).unwrap());
+    for value in values {
+        push_u16(out, *value);
+    }
+    for _ in values.len()..4 {
+        push_u16(out, 0);
+    }
+}
+
 fn entry_u32(out: &mut Vec<u8>, code: u16, value: u32) {
     entry_header(out, code, TYPE_U32, 1);
     push_u32(out, value);

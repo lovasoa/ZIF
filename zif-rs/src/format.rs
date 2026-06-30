@@ -13,8 +13,9 @@ pub const TAG_CHANNELS: u16 = 277;
 pub const TAG_INTERLEAVE: u16 = 284;
 pub const TAG_TILE_WIDTH: u16 = 322;
 pub const TAG_TILE_HEIGHT: u16 = 323;
-pub const TAG_TILE_OFFSETS: u16 = 324;
-pub const TAG_TILE_COUNTS: u16 = 325;
+pub const TAG_TILE_COUNTS: u16 = 324;
+pub const TAG_TILE_OFFSETS: u16 = 325;
+pub const TAG_YCBCR_SUBSAMPLING: u16 = 530;
 
 pub const TYPE_U16: u16 = 3;
 pub const TYPE_U32: u16 = 4;

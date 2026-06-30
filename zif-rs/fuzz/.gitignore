@@ -1,3 +1,5 @@
 /target/
 /artifacts/
-/corpus/
+/corpus/*/
+!/corpus/*/.gitkeep
+!/corpus/*/seed-*

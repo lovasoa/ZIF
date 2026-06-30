@@ -45,13 +45,78 @@ fn reader_file(
 
 fn parse(file: &[u8]) -> zif::Zif {
     let mut reader = Reader::new();
-    assert_eq!(
+    assert!(matches!(
         reader
             .advance(Chunk::from_start(0, file.to_vec()).unwrap())
             .unwrap(),
-        ReadStatus::Done
-    );
+        ReadStatus::Done { .. }
+    ));
     reader.zif().unwrap().clone()
+}
+
+#[derive(Debug)]
+struct RawEntry {
+    code: u16,
+    ty: u16,
+    count: u64,
+    slot: [u8; 8],
+}
+
+fn assert_raw_directory_chain(file: &[u8], expected_levels: usize, expected_entries: usize) {
+    let mut dir = read_u64(file, 8);
+    for _ in 0..expected_levels {
+        assert_ne!(dir, 0);
+        let dir_offset = usize::try_from(dir).unwrap();
+        let count = usize::try_from(read_u64(file, dir_offset)).unwrap();
+        assert_eq!(count, expected_entries);
+        let entries = raw_entries(file, dir_offset, count);
+        let codes: Vec<_> = entries.iter().map(|entry| entry.code).collect();
+        assert!(codes.windows(2).all(|pair| pair[0] < pair[1]));
+        assert_eq!(entry(&entries, 324).ty, 4);
+        assert_eq!(entry(&entries, 325).ty, 16);
+        if expected_entries == 12 {
+            assert_eq!(entry(&entries, 530).ty, 3);
+            assert_eq!(entry(&entries, 530).count, 2);
+        }
+        let next_pos = dir_offset + 8 + count * 20;
+        assert!(next_pos + 8 <= file.len());
+        dir = read_u64(file, next_pos);
+    }
+    assert_eq!(dir, 0);
+}
+
+fn raw_entries(file: &[u8], dir: usize, count: usize) -> Vec<RawEntry> {
+    (0..count)
+        .map(|index| {
+            let offset = dir + 8 + index * 20;
+            let mut slot = [0; 8];
+            slot.copy_from_slice(&file[offset + 12..offset + 20]);
+            RawEntry {
+                code: read_u16(file, offset),
+                ty: read_u16(file, offset + 2),
+                count: read_u64(file, offset + 4),
+                slot,
+            }
+        })
+        .collect()
+}
+
+fn read_u16(bytes: &[u8], offset: usize) -> u16 {
+    u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap())
+}
+
+fn read_u64(bytes: &[u8], offset: usize) -> u64 {
+    u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())
+}
+
+fn first_directory_entries(file: &[u8]) -> Vec<RawEntry> {
+    let dir = usize::try_from(read_u64(file, 8)).unwrap();
+    let count = usize::try_from(read_u64(file, dir)).unwrap();
+    raw_entries(file, dir, count)
+}
+
+fn entry(entries: &[RawEntry], code: u16) -> &RawEntry {
+    entries.iter().find(|entry| entry.code == code).unwrap()
 }
 
 #[test]
@@ -109,7 +174,7 @@ fn reader_requests_referenced_arrays_incrementally() {
     let status = reader
         .advance(Chunk::from_start(0, file[..16].to_vec()).unwrap())
         .unwrap();
-    let ReadStatus::NeedMore(req) = status else {
+    let ReadStatus::Need { req, .. } = status else {
         panic!("expected request")
     };
     assert!(req.start() >= 16);
@@ -124,13 +189,70 @@ fn reader_accepts_full_file_after_prefix_chunk() {
         reader
             .advance(Chunk::from_start(0, file[..16].to_vec()).unwrap())
             .unwrap(),
-        ReadStatus::NeedMore(_)
+        ReadStatus::Need { .. }
     ));
-    assert_eq!(
+    assert!(matches!(
         reader.advance(Chunk::from_start(0, file).unwrap()).unwrap(),
-        ReadStatus::Done
-    );
+        ReadStatus::Done { .. }
+    ));
     assert_eq!(reader.zif().unwrap().dimensions(), (16, 16));
+}
+
+#[test]
+fn reader_reads_metadata_from_truncated_reallife_fixture() {
+    let file = include_bytes!("reallife.zif");
+    let mut reader = Reader::new();
+    let mut status = reader
+        .advance(Chunk::from_start(0, file.to_vec()).unwrap())
+        .unwrap();
+
+    while let ReadStatus::Need { req, .. } = &status {
+        let range = req.range();
+        let Ok(end) = usize::try_from(range.end) else {
+            break;
+        };
+        if end > file.len() {
+            break;
+        }
+        let start = usize::try_from(range.start).unwrap();
+        status = reader
+            .advance(Chunk::new(range, file[start..end].to_vec()).unwrap())
+            .unwrap();
+    }
+
+    let ReadStatus::Need { req, zif } = status else {
+        panic!("truncated fixture should still need more data");
+    };
+    assert!(zif.is_some());
+    assert!(usize::try_from(req.end()).unwrap() > file.len());
+    let zif = reader.zif().unwrap();
+    assert_eq!(zif.dimensions(), (7946, 10061));
+    assert_eq!(zif.codec(), Codec::Jpeg);
+    assert_eq!(zif.color_model(), ColorModel::YCbCr);
+    assert_eq!(zif.channels(), 3);
+    assert_eq!(zif.level_count(), 1);
+    let level = zif.level(0).unwrap();
+    assert_eq!(level.tile_size(), (256, 256));
+    assert_eq!(level.tile_grid(), (32, 40));
+    assert_eq!(level.tile_count(), 1280);
+
+    let present_tiles: Vec<_> = zif
+        .get_level_tiles(0)
+        .unwrap()
+        .filter(|tile| usize::try_from(tile.bytes().end).is_ok_and(|end| end <= file.len()))
+        .collect();
+    assert_eq!(
+        present_tiles.len(),
+        usize::try_from(level.tile_count()).unwrap()
+    );
+    let first = present_tiles.first().unwrap();
+    assert_eq!(first.index(), 0);
+    assert_eq!(first.position(), (0, 0));
+    let range = first.bytes();
+    let start = usize::try_from(range.start).unwrap();
+    let end = usize::try_from(range.end).unwrap();
+    assert!(start < end);
+    assert!(file[start..end].iter().any(|&byte| byte != 0));
 }
 
 #[test]
@@ -141,7 +263,7 @@ fn reader_does_not_treat_start_zero_prefix_as_complete_file() {
     let status = reader
         .advance(Chunk::from_start(0, file[..16].to_vec()).unwrap())
         .unwrap();
-    let ReadStatus::NeedMore(req) = status else {
+    let ReadStatus::Need { req, .. } = status else {
         panic!("expected directory request");
     };
     let range = req.range();
@@ -151,7 +273,7 @@ fn reader_does_not_treat_start_zero_prefix_as_complete_file() {
     let mut status = reader
         .advance(Chunk::from_start(range.start, file[start..end].to_vec()).unwrap())
         .unwrap();
-    while let ReadStatus::NeedMore(req) = status {
+    while let ReadStatus::Need { req, .. } = status {
         let range = req.range();
         let start = usize::try_from(range.start).unwrap();
         let end = usize::try_from(range.end).unwrap();
@@ -159,7 +281,7 @@ fn reader_does_not_treat_start_zero_prefix_as_complete_file() {
             .advance(Chunk::from_start(range.start, file[start..end].to_vec()).unwrap())
             .unwrap();
     }
-    assert_eq!(status, ReadStatus::Done);
+    assert!(matches!(status, ReadStatus::Done { .. }));
     assert_eq!(reader.zif().unwrap().dimensions(), (16, 16));
 }
 
@@ -236,6 +358,90 @@ fn writer_rejects_bad_tile_coordinates() {
         .unwrap();
     assert!(writer.put_tile((1, 0), b"x").is_err());
     assert!(writer.put_tile_at_level(1, (0, 0), b"x").is_err());
+}
+
+#[test]
+fn writer_emits_bigtiff_compatible_tag_ids_types_and_order() {
+    let file = reader_file(
+        (40, 40),
+        (16, 16),
+        &[((0, 0), b"a"), ((1, 0), b"bb"), ((2, 2), b"ccc")],
+    );
+    let entries = first_directory_entries(&file);
+    let codes: Vec<_> = entries.iter().map(|entry| entry.code).collect();
+
+    assert_eq!(
+        codes,
+        vec![256, 257, 258, 259, 262, 277, 284, 322, 323, 324, 325, 530]
+    );
+    assert!(codes.windows(2).all(|pair| pair[0] < pair[1]));
+    assert_eq!(entry(&entries, 258).ty, 3);
+    assert_eq!(entry(&entries, 259).ty, 3);
+    assert_eq!(entry(&entries, 262).ty, 3);
+    assert_eq!(entry(&entries, 277).ty, 3);
+    assert_eq!(entry(&entries, 284).ty, 3);
+    assert_eq!(entry(&entries, 322).ty, 4);
+    assert_eq!(entry(&entries, 323).ty, 4);
+    assert_eq!(entry(&entries, 324).ty, 4);
+    assert_eq!(entry(&entries, 324).count, 9);
+    assert_eq!(entry(&entries, 325).ty, 16);
+    assert_eq!(entry(&entries, 325).count, 9);
+    assert_eq!(entry(&entries, 530).ty, 3);
+    assert_eq!(entry(&entries, 530).count, 2);
+}
+
+#[test]
+fn writer_uses_tiff_tile_byte_counts_before_tile_offsets() {
+    let file = reader_file((32, 16), (16, 16), &[((0, 0), b"left"), ((1, 0), b"right")]);
+    let entries = first_directory_entries(&file);
+    let counts = entry(&entries, 324);
+    let offsets = entry(&entries, 325);
+
+    assert_eq!(counts.ty, 4);
+    assert_eq!(offsets.ty, 16);
+    let offsets_offset = usize::try_from(u64::from_le_bytes(offsets.slot)).unwrap();
+    assert_eq!(u32::from_le_bytes(counts.slot[..4].try_into().unwrap()), 4);
+    assert_eq!(u32::from_le_bytes(counts.slot[4..8].try_into().unwrap()), 5);
+    let first_tile = usize::try_from(read_u64(&file, offsets_offset)).unwrap();
+    let second_tile = usize::try_from(read_u64(&file, offsets_offset + 8)).unwrap();
+    assert_eq!(&file[first_tile..first_tile + 4], b"left");
+    assert_eq!(&file[second_tile..second_tile + 5], b"right");
+}
+
+#[test]
+fn multi_level_writer_patches_next_directory_after_optional_tags() {
+    let mut writer = Writer::new()
+        .level(LevelSpec::new((32, 32), (16, 16)).unwrap())
+        .level(LevelSpec::new((16, 16), (16, 16)).unwrap())
+        .codec(Codec::Jpeg)
+        .color_model(ColorModel::YCbCr)
+        .channels(3)
+        .unwrap()
+        .build()
+        .unwrap();
+    let mut file = Vec::new();
+    apply(
+        &mut file,
+        writer.put_tile_at_level(0, (0, 0), b"base").unwrap(),
+    );
+    apply(
+        &mut file,
+        writer.put_tile_at_level(1, (0, 0), b"top").unwrap(),
+    );
+
+    assert_raw_directory_chain(&file, 2, 12);
+    let first_dir = usize::try_from(read_u64(&file, 8)).unwrap();
+    let first_count = usize::try_from(read_u64(&file, first_dir)).unwrap();
+    assert_eq!(first_count, 12);
+    assert_eq!(entry(&first_directory_entries(&file), 530).count, 2);
+    let second_dir = usize::try_from(read_u64(&file, first_dir + 8 + first_count * 20)).unwrap();
+    assert_ne!(second_dir, 0);
+    assert_eq!(read_u64(&file, second_dir), 12);
+    let second_next = read_u64(&file, second_dir + 8 + 12 * 20);
+    assert_eq!(second_next, 0);
+
+    let zif = parse(&file);
+    assert_eq!(zif.level_count(), 2);
 }
 
 #[test]
@@ -344,7 +550,7 @@ fn multi_level_writer_links_directories_and_classifies_pyramid() {
 }
 
 #[test]
-fn reader_rejects_tile_byte_range_beyond_full_file() {
+fn reader_rejects_overflowing_tile_byte_range() {
     const ENTRY_LEN: usize = 20;
     const TYPE_U16: u16 = 3;
     const TYPE_U32: u16 = 4;
@@ -389,12 +595,12 @@ fn reader_rejects_tile_byte_range_beyond_full_file() {
     entry_u16(&mut file, 284, 1);
     entry_u32(&mut file, 322, 16);
     entry_u32(&mut file, 323, 16);
+    entry_u64(&mut file, 324, u64::MAX);
     entry_u64(
         &mut file,
-        324,
+        325,
         u64::try_from(16 + 8 + 11 * ENTRY_LEN + 8).unwrap(),
     );
-    entry_u32(&mut file, 325, u32::MAX);
     push_u64(&mut file, 0);
 
     let mut reader = Reader::new();
@@ -403,6 +609,6 @@ fn reader_rejects_tile_byte_range_beyond_full_file() {
         .unwrap_err();
     assert!(matches!(
         err,
-        Error::MalformedFile("tile byte range exceeds file length")
+        Error::MalformedFile("tile byte count exceeds u32")
     ));
 }

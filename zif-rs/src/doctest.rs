@@ -38,7 +38,7 @@ pub fn sample_zif() -> Zif {
     let status = reader
         .advance(Chunk::from_start(0, file).expect("coherent chunk"))
         .expect("sample parses");
-    assert_eq!(status, ReadStatus::Done);
+    assert!(matches!(status, ReadStatus::Done { .. }));
     reader.zif().expect("reader is done").clone()
 }
 

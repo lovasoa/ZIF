@@ -331,16 +331,17 @@ entries required in every image directory.
 | 254 (0x00FE)  | Flags            | `u32`               | no   | Bitmask; bit 0 = reduced-resolution level (informational). |
 | 256 (0x0100)  | Image width      | `u16`/`u32`         | yes  | Level width in pixels.                      |
 | 257 (0x0101)  | Image height     | `u16`/`u32`         | yes  | Level height in pixels.                     |
-| 258 (0x0102)  | Bit depth        | `u16`               | yes  | Always 8.                                   |
+| 258 (0x0102)  | Bit depth        | `u16` array         | yes  | One value `8`, or one `8` per channel.      |
 | 259 (0x0103)  | Codec            | `u16`               | yes  | §6.5.                                       |
 | 262 (0x0106)  | Color model      | `u16`               | yes  | §6.6.                                       |
 | 277 (0x0115)  | Channels         | `u16`               | yes  | 1 (grayscale) or 3 (RGB).                   |
 | 284 (0x011C)  | Interleave       | `u16`               | yes  | Always 1 (interleaved).                     |
 | 322 (0x0142)  | Tile width       | `u16`/`u32`         | yes  | Multiple of 16.                             |
 | 323 (0x0143)  | Tile height      | `u16`/`u32`         | yes  | Multiple of 16.                             |
-| 324 (0x0144)  | Tile offsets     | `u64` array         | yes  | `tileCount` file offsets, one per tile (§6.3). |
-| 325 (0x0145)  | Tile byte counts | `u32` array         | yes  | `tileCount` sizes in bytes, one per tile.   |
+| 324 (0x0144)  | Tile byte counts | `u32`/`u64` array   | yes  | `tileCount` sizes in bytes, one per tile.   |
+| 325 (0x0145)  | Tile offsets     | `u32`/`u64` array   | yes  | `tileCount` file offsets, one per tile (§6.3). |
 | 330 (0x014A)  | Sub-directory    | dir-offset          | no   | Offset to a thumbnail sub-directory (§7).    |
+| 530 (0x0212)  | YCbCr subsampling| `u16` array         | no   | Two values: horizontal and vertical subsampling. Valid values are `1,1` (4:4:4) or `2,2` (4:2:0). SHOULD be present when color model is YCbCr. |
 | 271 (0x010F)  | Make             | ASCII               | no   | Device manufacturer (§10.2).                |
 | 272 (0x0110)  | Model            | ASCII               | no   | Device model (§10.2).                       |
 | 305 (0x0131)  | Software         | ASCII               | no   | Producing software (§10.2).                 |
@@ -350,7 +351,15 @@ entries required in every image directory.
 
 The *Tile offsets* and *Tile byte counts* arrays both have length `tileCount`
 and are indexed identically in row-major order (§6.3). Tile `i` occupies the
-byte range `[offsets[i], offsets[i] + counts[i])`.
+byte range `[offsets[i], offsets[i] + counts[i])`. Writers MAY store tile
+offsets as either `u32` or `u64`; readers MUST accept both. Writers MAY store
+tile byte counts as either `u32` or `u64`; readers MUST accept both, but MUST
+reject a count that does not fit in the reader's supported memory model. Writers
+SHOULD use the smallest integer type that can represent all values in the array.
+
+For three-channel images, the *Bit depth* entry MAY contain either a single
+value `8` applying to all channels, or three values `8, 8, 8`, one per channel.
+For one-channel images, it MUST contain one value `8`.
 
 An entry with a code not listed here MUST be ignored by readers that do not
 understand it, provided it does not contradict a required entry.

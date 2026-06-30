@@ -21,6 +21,6 @@ pub mod tokio;
 pub mod reqwest;
 
 pub use error::{Error, Result};
-pub use model::{ChainKind, Chunk, Codec, ColorModel, Level, Region, Request, Tile, Zif};
+pub use model::{ChainKind, Chunk, Codec, ColorModel, Level, Region, Request, Tile, Zif, ZifView};
 pub use reader::{ReadStatus, Reader};
 pub use writer::{LevelSpec, WriteBatch, WriteOp, Writer, WriterBuilder};

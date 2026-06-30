@@ -23,7 +23,7 @@ fn read_all(file: &[u8]) -> zif::Zif {
     let status = reader
         .advance(Chunk::from_start(0, file.to_vec()).unwrap())
         .unwrap();
-    assert_eq!(status, ReadStatus::Done);
+    assert!(matches!(status, ReadStatus::Done { .. }));
     reader.zif().unwrap().clone()
 }
 
@@ -101,12 +101,12 @@ fn reader_accepts_non_exact_chunk() {
     let mut reader = Reader::new();
     assert!(matches!(
         reader.advance(Chunk::default()).unwrap(),
-        ReadStatus::NeedMore(_)
+        ReadStatus::Need { .. }
     ));
-    assert_eq!(
+    assert!(matches!(
         reader.advance(Chunk::from_start(0, file).unwrap()).unwrap(),
-        ReadStatus::Done
-    );
+        ReadStatus::Done { .. }
+    ));
     assert_eq!(reader.zif().unwrap().dimensions(), (16, 16));
 }
 

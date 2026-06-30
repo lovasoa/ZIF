@@ -12,6 +12,24 @@ use zif::{
     Writer,
 };
 
+const ENTRY_LEN: usize = 20;
+const TAG_WIDTH: u16 = 256;
+const TAG_HEIGHT: u16 = 257;
+const TAG_BITS: u16 = 258;
+const TAG_CODEC: u16 = 259;
+const TAG_COLOR: u16 = 262;
+const TAG_CHANNELS: u16 = 277;
+const TAG_INTERLEAVE: u16 = 284;
+const TAG_TILE_WIDTH: u16 = 322;
+const TAG_TILE_HEIGHT: u16 = 323;
+const TAG_TILE_COUNTS: u16 = 324;
+const TAG_TILE_OFFSETS: u16 = 325;
+const TAG_YCBCR_SUBSAMPLING: u16 = 530;
+
+const TYPE_U16: u16 = 3;
+const TYPE_U32: u16 = 4;
+const TYPE_U64: u16 = 16;
+
 static NEXT_LIBTIFF_FILE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Arbitrary, Debug)]
@@ -105,7 +123,15 @@ struct ExpectedLevel {
     payloads: BTreeMap<(u64, u64), Vec<u8>>,
 }
 
+struct RawEntry {
+    code: u16,
+    ty: u16,
+    count: u64,
+}
+
 fuzz_target!(|data: &[u8]| {
+    deterministic_writer_regressions();
+
     let Ok(input) = Input::arbitrary(&mut Unstructured::new(data)) else {
         return;
     };
@@ -207,6 +233,70 @@ fuzz_target!(|data: &[u8]| {
         assert_libtiff_reads_writer_output(&file, &expected, color_model, channels);
     }
 });
+
+fn deterministic_writer_regressions() {
+    check_writer_case(
+        vec![
+            ((32, 32), (16, 16)),
+            ((16, 16), (16, 16)),
+        ],
+        Codec::Jpeg,
+        ColorModel::YCbCr,
+        3,
+        &[(0, 0, 0, b"base".as_slice()), (1, 0, 0, b"top".as_slice())],
+    );
+    check_writer_case(
+        vec![((16, 16), (16, 16))],
+        Codec::Jpeg,
+        ColorModel::BlackIsZero,
+        1,
+        &[(0, 0, 0, b"gray".as_slice())],
+    );
+    check_writer_case(
+        vec![((32, 16), (16, 16))],
+        Codec::Png,
+        ColorModel::Rgb,
+        3,
+        &[(0, 0, 0, b"left".as_slice()), (0, 1, 0, b"right".as_slice())],
+    );
+}
+
+fn check_writer_case(
+    specs: Vec<((u64, u64), (u32, u32))>,
+    codec: Codec,
+    color_model: ColorModel,
+    channels: u16,
+    tiles: &[(usize, u64, u64, &[u8])],
+) {
+    let mut expected: Vec<_> = specs
+        .iter()
+        .map(|&(dimensions, tile_size)| {
+            ExpectedLevel {
+                dimensions,
+                tile_size: (u64::from(tile_size.0), u64::from(tile_size.1)),
+                tiles_across: dimensions.0.div_ceil(u64::from(tile_size.0)),
+                tiles_down: dimensions.1.div_ceil(u64::from(tile_size.1)),
+                payloads: BTreeMap::new(),
+            }
+        })
+        .collect();
+    let mut builder = Writer::new().codec(codec).color_model(color_model).channels(channels).unwrap();
+    for (dimensions, tile_size) in specs {
+        builder = builder.level(LevelSpec::new(dimensions, tile_size).unwrap());
+    }
+    let mut writer = builder.build().expect("deterministic writer case is valid");
+    let mut file = Vec::new();
+    for &(level, col, row, bytes) in tiles {
+        apply(
+            &mut file,
+            writer
+                .put_tile_at_level(level, (col, row), bytes)
+                .expect("deterministic tile coordinate is valid"),
+        );
+        expected[level].payloads.insert((col, row), bytes.to_vec());
+        assert_full_parse_invariants(&file, &expected, color_model, channels);
+    }
+}
 
 fn fuzz_raw_reader(chunks: &[RawChunk]) {
     let mut reader = Reader::new();
@@ -346,12 +436,12 @@ fn advance_and_check(
 ) -> Option<std::ops::Range<u64>> {
     let chunk = chunk?;
     match reader.advance(chunk) {
-        Ok(ReadStatus::NeedMore(req)) => {
+        Ok(ReadStatus::Need { req, .. }) => {
             let range = req.range();
             assert!(range.start <= range.end);
             Some(range)
         }
-        Ok(ReadStatus::Done) => {
+        Ok(ReadStatus::Done { .. }) => {
             let zif = reader.zif().expect("done reader has zif");
             assert_parsed_zif_invariants(file, zif);
             None
@@ -370,9 +460,10 @@ fn assert_full_parse_invariants(
     let status = reader
         .advance(Chunk::from_start(0, file.to_vec()).expect("full-file chunk is coherent"))
         .expect("writer output must parse");
-    assert_eq!(status, ReadStatus::Done);
+    assert!(matches!(status, ReadStatus::Done { .. }));
     let zif = reader.zif().expect("done reader has zif");
     assert_parsed_zif_invariants(file, zif);
+    assert_writer_directory_tags(file, expected);
     assert_eq!(zif.level_count(), expected.len());
     assert_eq!(zif.dimensions(), expected[0].dimensions);
     assert_eq!(zif.color_model(), color_model);
@@ -419,6 +510,87 @@ fn assert_full_parse_invariants(
             ),
         );
     }
+}
+
+fn assert_writer_directory_tags(file: &[u8], expected: &[ExpectedLevel]) {
+    let mut dir = read_u64(file, 8);
+    for exp in expected {
+        assert_ne!(dir, 0);
+        let dir_offset = usize::try_from(dir).expect("directory offset fits usize");
+        assert!(dir_offset + 8 <= file.len());
+        let count = usize::try_from(read_u64(file, dir_offset)).expect("entry count fits usize");
+        let has_ycbcr_subsampling = entry_color_model(file, dir_offset) == 6;
+        assert_eq!(count, 11 + usize::from(has_ycbcr_subsampling));
+        let entries: Vec<_> = (0..count)
+            .map(|index| {
+                let offset = dir_offset + 8 + index * ENTRY_LEN;
+                assert!(offset + ENTRY_LEN <= file.len());
+                RawEntry {
+                    code: read_u16(file, offset),
+                    ty: read_u16(file, offset + 2),
+                    count: read_u64(file, offset + 4),
+                }
+            })
+            .collect();
+        let codes: Vec<_> = entries.iter().map(|entry| entry.code).collect();
+        let mut expected_codes = vec![
+            TAG_WIDTH,
+            TAG_HEIGHT,
+            TAG_BITS,
+            TAG_CODEC,
+            TAG_COLOR,
+            TAG_CHANNELS,
+            TAG_INTERLEAVE,
+            TAG_TILE_WIDTH,
+            TAG_TILE_HEIGHT,
+            TAG_TILE_COUNTS,
+            TAG_TILE_OFFSETS,
+        ];
+        if has_ycbcr_subsampling {
+            expected_codes.push(TAG_YCBCR_SUBSAMPLING);
+        }
+        assert_eq!(codes, expected_codes);
+        assert!(codes.windows(2).all(|pair| pair[0] < pair[1]));
+        assert_entry(&entries, TAG_BITS, TYPE_U16, 1);
+        assert_entry(&entries, TAG_CODEC, TYPE_U16, 1);
+        assert_entry(&entries, TAG_COLOR, TYPE_U16, 1);
+        assert_entry(&entries, TAG_CHANNELS, TYPE_U16, 1);
+        assert_entry(&entries, TAG_INTERLEAVE, TYPE_U16, 1);
+        assert_entry(&entries, TAG_TILE_WIDTH, TYPE_U32, 1);
+        assert_entry(&entries, TAG_TILE_HEIGHT, TYPE_U32, 1);
+        assert_entry(&entries, TAG_TILE_COUNTS, TYPE_U32, exp.tiles_across * exp.tiles_down);
+        assert_entry(&entries, TAG_TILE_OFFSETS, TYPE_U64, exp.tiles_across * exp.tiles_down);
+        if has_ycbcr_subsampling {
+            assert_entry(&entries, TAG_YCBCR_SUBSAMPLING, TYPE_U16, 2);
+        }
+        dir = read_u64(file, dir_offset + 8 + count * ENTRY_LEN);
+    }
+    assert_eq!(dir, 0);
+}
+
+fn entry_color_model(file: &[u8], dir_offset: usize) -> u16 {
+    let count = usize::try_from(read_u64(file, dir_offset)).expect("entry count fits usize");
+    for index in 0..count {
+        let offset = dir_offset + 8 + index * ENTRY_LEN;
+        if read_u16(file, offset) == TAG_COLOR {
+            return read_u16(file, offset + 12);
+        }
+    }
+    0
+}
+
+fn assert_entry(entries: &[RawEntry], code: u16, ty: u16, count: u64) {
+    let entry = entries.iter().find(|entry| entry.code == code).expect("tag is present");
+    assert_eq!(entry.ty, ty);
+    assert_eq!(entry.count, count);
+}
+
+fn read_u16(bytes: &[u8], offset: usize) -> u16 {
+    u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap())
+}
+
+fn read_u64(bytes: &[u8], offset: usize) -> u64 {
+    u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())
 }
 
 fn assert_libtiff_reads_writer_output(
