@@ -215,9 +215,9 @@ dependencies = [
 
 [[package]]
 name = "libtiff-sys"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "232fc46f86a67414791da42c19ae734e605fd7a7eca793249bd17cb3af44a383"
+checksum = "e3d14099cfbda28c9459435bad8e6e250fd455e701f4cd7562bb922f4584453d"
 dependencies = [
  "bindgen",
  "cmake",
