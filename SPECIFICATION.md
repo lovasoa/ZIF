@@ -342,8 +342,8 @@ entries required in every image directory.
 | 284 (0x011C)  | Interleave       | `u16`               | yes  | Always 1 (interleaved).                     |
 | 322 (0x0142)  | Tile width       | `u16`/`u32`         | yes  | Multiple of 16.                             |
 | 323 (0x0143)  | Tile height      | `u16`/`u32`         | yes  | Multiple of 16.                             |
-| 324 (0x0144)  | Tile offsets     | `u32`/`u64` array   | yes  | `tileCount` file offsets, one per tile (§6.3). |
-| 325 (0x0145)  | Tile byte counts | `u32`/`u64` array   | yes  | `tileCount` sizes in bytes, one per tile.   |
+| 324 (0x0144)  | Tile offsets     | `u16`/`u32`/`u64` array | yes  | `tileCount` file offsets, one per tile (§6.3). |
+| 325 (0x0145)  | Tile byte counts | `u16`/`u32`/`u64` array | yes  | `tileCount` sizes in bytes, one per tile.   |
 | 330 (0x014A)  | Sub-directory    | dir-offset          | no   | Offset to a thumbnail sub-directory (§7).    |
 | 530 (0x0212)  | YCbCr subsampling| `u16` array         | no   | Two values: horizontal and vertical subsampling. Valid values are `1,1` (4:4:4) or `2,2` (4:2:0). SHOULD be present when color model is YCbCr. |
 | 271 (0x010F)  | Make             | ASCII               | no   | Device manufacturer (§10.2).                |
@@ -356,10 +356,11 @@ entries required in every image directory.
 The *Tile offsets* and *Tile byte counts* arrays both have length `tileCount`
 and are indexed identically in row-major order (§6.3). Tile `i` occupies the
 byte range `[offsets[i], offsets[i] + counts[i])`. Writers MAY store tile
-offsets as either `u32` or `u64`; readers MUST accept both. Writers MAY store
-tile byte counts as either `u32` or `u64`; readers MUST accept both, but MUST
-reject a count that does not fit in the reader's supported memory model. Writers
-SHOULD use the smallest integer type that can represent all values in the array.
+offsets as `u16`, `u32`, or `u64`; readers MUST accept all three. Writers MAY
+store tile byte counts as `u16`, `u32`, or `u64`; readers MUST accept all three,
+but MUST reject a count that does not fit in the reader's supported memory
+model. Writers SHOULD use the smallest integer type that can represent all
+values in the array.
 
 For three-channel images, the *Bit depth* entry MAY contain either a single
 value `8` applying to all channels, or three values `8, 8, 8`, one per channel.

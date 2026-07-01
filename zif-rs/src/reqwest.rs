@@ -7,10 +7,7 @@ pub struct HttpRangeReader {
 
 impl HttpRangeReader {
     pub fn new(url: impl Into<String>) -> Self {
-        Self {
-            client: reqwest::Client::new(),
-            url: url.into(),
-        }
+        Self::with_client(reqwest::Client::new(), url)
     }
 
     pub fn with_client(client: reqwest::Client, url: impl Into<String>) -> Self {

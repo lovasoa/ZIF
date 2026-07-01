@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use tokio::fs::File;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt, SeekFrom};
+use tokio::io::{
+    AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt, SeekFrom,
+};
 
 use crate::{Chunk, Request, WriteBatch};
 
@@ -60,7 +62,11 @@ impl AsyncRangeWriter<File> {
 
     pub async fn open(path: impl AsRef<Path>) -> std::io::Result<Self> {
         Ok(Self {
-            writer: tokio::fs::OpenOptions::new().read(true).write(true).open(path).await?,
+            writer: tokio::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)
+                .await?,
         })
     }
 }

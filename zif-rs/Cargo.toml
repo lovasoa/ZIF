@@ -1,6 +1,6 @@
 [package]
 name = "zif"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
@@ -21,7 +21,8 @@ tokio = { version = "1", optional = true, default-features = false, features = [
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["blocking", "rustls-tls"] }
 
 [dev-dependencies]
-libtiff-sys = "0.1.1"
+libtiff-sys = { version = "0.2", features = ["jpeg"] }
+mozjpeg-sys = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tokio = { version = "1", default-features = false, features = ["fs", "io-util", "rt"] }
 

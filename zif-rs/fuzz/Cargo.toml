@@ -10,7 +10,8 @@ cargo-fuzz = true
 [dependencies]
 arbitrary = { version = "1", features = ["derive"] }
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
-libtiff-sys = "0.1.1"
+libtiff-sys = { version = "0.2", features = ["jpeg"] }
+mozjpeg-sys = "1"
 zif = { path = ".." }
 
 [[bin]]

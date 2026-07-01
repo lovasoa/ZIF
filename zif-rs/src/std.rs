@@ -58,7 +58,10 @@ impl RangeWriter<File> {
 
     pub fn open(path: impl AsRef<Path>) -> std::io::Result<Self> {
         Ok(Self {
-            writer: std::fs::OpenOptions::new().read(true).write(true).open(path)?,
+            writer: std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)?,
         })
     }
 }

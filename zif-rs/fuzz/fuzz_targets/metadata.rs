@@ -22,7 +22,9 @@ const TYPE_U16: u16 = 3;
 const TYPE_U32: u16 = 4;
 const TYPE_U64: u16 = 16;
 
-const VALID_HEADER: [u8; 16] = [0x49, 0x49, 0x2b, 0x00, 0x08, 0x00, 0x00, 0x00, 16, 0, 0, 0, 0, 0, 0, 0];
+const VALID_HEADER: [u8; 16] = [
+    0x49, 0x49, 0x2b, 0x00, 0x08, 0x00, 0x00, 0x00, 16, 0, 0, 0, 0, 0, 0, 0,
+];
 
 #[derive(Arbitrary, Debug)]
 struct Input {
@@ -203,7 +205,9 @@ fn out_of_file_tile_range_file() -> Vec<u8> {
 
 fn build_structured(dirs: Vec<Dir>, trailing: Vec<u8>) -> Vec<u8> {
     let dirs: Vec<_> = dirs.into_iter().take(5).collect();
-    let mut file = Vec::from([0x49, 0x49, 0x2b, 0x00, 0x08, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 0, 0, 0]);
+    let mut file = Vec::from([
+        0x49, 0x49, 0x2b, 0x00, 0x08, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 0, 0, 0,
+    ]);
     if dirs.is_empty() {
         return file;
     }
@@ -308,7 +312,12 @@ fn scalar_entry(code: u16, scalar: &Scalar) -> Entry {
         TYPE_U32 => slot[..4].copy_from_slice(&scalar.value.to_le_bytes()),
         _ => slot.copy_from_slice(&u64::from(scalar.value).to_le_bytes()),
     }
-    Entry { code, ty, count, slot }
+    Entry {
+        code,
+        ty,
+        count,
+        slot,
+    }
 }
 
 fn value_entry(code: u16, value: &EntryValue) -> Entry {
@@ -316,7 +325,12 @@ fn value_entry(code: u16, value: &EntryValue) -> Entry {
     let count = small_count(&value.count);
     let mut slot = [0; 8];
     slot[..2].copy_from_slice(&value.value.to_le_bytes());
-    Entry { code, ty, count, slot }
+    Entry {
+        code,
+        ty,
+        count,
+        slot,
+    }
 }
 
 fn array_entry(code: u16, array: &ArrayValue, exact_count: u64) -> Entry {
@@ -347,7 +361,12 @@ fn array_entry(code: u16, array: &ArrayValue, exact_count: u64) -> Entry {
         (_, Storage::BadOffset(offset)) => slot.copy_from_slice(&offset.to_le_bytes()),
         (_, Storage::Referenced) => {}
     }
-    Entry { code, ty, count, slot }
+    Entry {
+        code,
+        ty,
+        count,
+        slot,
+    }
 }
 
 fn expected_tile_count(dir: &Dir) -> u64 {
@@ -355,7 +374,9 @@ fn expected_tile_count(dir: &Dir) -> u64 {
     let height = valid_scalar_value(&dir.height).max(1);
     let tile_width = valid_scalar_value(&dir.tile_width).max(1);
     let tile_height = valid_scalar_value(&dir.tile_height).max(1);
-    width.div_ceil(tile_width).saturating_mul(height.div_ceil(tile_height))
+    width
+        .div_ceil(tile_width)
+        .saturating_mul(height.div_ceil(tile_height))
 }
 
 fn valid_scalar_value(scalar: &Scalar) -> u64 {
@@ -449,24 +470,44 @@ fn push_entry(out: &mut Vec<u8>, entry: &Entry) {
 fn inline_u16(code: u16, value: u16) -> Entry {
     let mut slot = [0; 8];
     slot[..2].copy_from_slice(&value.to_le_bytes());
-    Entry { code, ty: TYPE_U16, count: 1, slot }
+    Entry {
+        code,
+        ty: TYPE_U16,
+        count: 1,
+        slot,
+    }
 }
 
 fn inline_u32(code: u16, value: u32) -> Entry {
     let mut slot = [0; 8];
     slot[..4].copy_from_slice(&value.to_le_bytes());
-    Entry { code, ty: TYPE_U32, count: 1, slot }
+    Entry {
+        code,
+        ty: TYPE_U32,
+        count: 1,
+        slot,
+    }
 }
 
 fn inline_u64(code: u16, value: u64) -> Entry {
-    Entry { code, ty: TYPE_U64, count: 1, slot: value.to_le_bytes() }
+    Entry {
+        code,
+        ty: TYPE_U64,
+        count: 1,
+        slot: value.to_le_bytes(),
+    }
 }
 
 fn inline_u32_array(code: u16, first: u32, second: u32) -> Entry {
     let mut slot = [0; 8];
     slot[..4].copy_from_slice(&first.to_le_bytes());
     slot[4..8].copy_from_slice(&second.to_le_bytes());
-    Entry { code, ty: TYPE_U32, count: 1, slot }
+    Entry {
+        code,
+        ty: TYPE_U32,
+        count: 1,
+        slot,
+    }
 }
 
 fn push_u16(out: &mut Vec<u8>, value: u16) {
@@ -498,8 +539,12 @@ fn fuzz_incremental_reads(file: &[u8], reads: Vec<ReadPlan>) {
                 }
             }
             ReadPlan::Requested => request.clone().and_then(|range: std::ops::Range<u64>| {
-                let start = usize::try_from(range.start).unwrap_or(usize::MAX).min(file.len());
-                let end = usize::try_from(range.end).unwrap_or(usize::MAX).min(file.len());
+                let start = usize::try_from(range.start)
+                    .unwrap_or(usize::MAX)
+                    .min(file.len());
+                let end = usize::try_from(range.end)
+                    .unwrap_or(usize::MAX)
+                    .min(file.len());
                 if start <= end {
                     chunk(file, start, end)
                 } else {
@@ -512,7 +557,9 @@ fn fuzz_incremental_reads(file: &[u8], reads: Vec<ReadPlan>) {
                     None
                 } else {
                     let start = usize::from(start) % file.len();
-                    let end = start.saturating_add(usize::from(len).max(1)).min(file.len());
+                    let end = start
+                        .saturating_add(usize::from(len).max(1))
+                        .min(file.len());
                     let mut bytes = file[start..end].to_vec();
                     if let Some(first) = bytes.first_mut() {
                         *first ^= 0xff;
@@ -533,7 +580,9 @@ fn fuzz_incremental_reads(file: &[u8], reads: Vec<ReadPlan>) {
                     request = None;
                 }
                 Err(Error::MalformedFile(_) | Error::InvalidInput(_) | Error::Unsupported(_)) => {}
-                Err(Error::Incomplete) => panic!("advance should return NeedMore instead of Incomplete"),
+                Err(Error::Incomplete) => {
+                    panic!("advance should return NeedMore instead of Incomplete")
+                }
             }
         }
     }
@@ -545,7 +594,8 @@ fn chunk(file: &[u8], start: usize, end: usize) -> Option<Chunk<Vec<u8>>> {
 
 fn parse_full_and_check(file: &[u8]) {
     let mut reader = Reader::new();
-    match reader.advance(Chunk::from_start(0, file.to_vec()).expect("full-file chunk is coherent")) {
+    match reader.advance(Chunk::from_start(0, file.to_vec()).expect("full-file chunk is coherent"))
+    {
         Ok(ReadStatus::Done { .. }) => check_done_reader(&reader, file),
         Ok(ReadStatus::Need { req, .. }) => assert!(req.start() <= req.end()),
         Err(Error::MalformedFile(_) | Error::InvalidInput(_) | Error::Unsupported(_)) => {}
@@ -563,8 +613,14 @@ fn check_done_reader(reader: &Reader, file: &[u8]) {
         assert!(level.height() > 0);
         assert!(level.tile_size().0 > 0);
         assert!(level.tile_size().1 > 0);
-        assert_eq!(level.tile_count(), level.tile_grid().0 * level.tile_grid().1);
-        let tiles: Vec<_> = zif.get_level_tiles(level_index).expect("level exists").collect();
+        assert_eq!(
+            level.tile_count(),
+            level.tile_grid().0 * level.tile_grid().1
+        );
+        let tiles: Vec<_> = zif
+            .get_level_tiles(level_index)
+            .expect("level exists")
+            .collect();
         assert_eq!(tiles.len() as u64, level.tile_count());
         for tile in tiles {
             assert_eq!(tile.level(), level_index);

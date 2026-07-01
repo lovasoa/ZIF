@@ -3,13 +3,17 @@
 
 use libfuzzer_sys::arbitrary::{Arbitrary, Unstructured};
 use libfuzzer_sys::fuzz_target;
+use mozjpeg_sys::{
+    jpeg_compress_struct, jpeg_create_compress, jpeg_destroy_compress, jpeg_error_mgr,
+    jpeg_finish_compress, jpeg_mem_dest, jpeg_set_defaults, jpeg_set_quality, jpeg_start_compress,
+    jpeg_std_error, jpeg_write_scanlines, JCS_GRAYSCALE, JCS_RGB,
+};
+use std::collections::BTreeMap;
 use std::ffi::CString;
 use std::fs;
-use std::collections::BTreeMap;
+use std::os::raw::{c_int, c_ulong};
 use std::sync::atomic::{AtomicU64, Ordering};
-use zif::{
-    ChainKind, Chunk, Codec, ColorModel, LevelSpec, ReadStatus, Reader, WriteBatch, Writer,
-};
+use zif::{ChainKind, Chunk, Codec, ColorModel, LevelSpec, ReadStatus, Reader, WriteBatch, Writer};
 
 const ENTRY_LEN: usize = 20;
 const TAG_WIDTH: u16 = 256;
@@ -140,9 +144,10 @@ fuzz_target!(|data: &[u8]| {
     let Some((level_specs, mut expected)) = make_levels(input.shape) else {
         return;
     };
+    let codec = codec(input.codec);
     let (color_model, channels) = color_and_channels(input.color);
     let mut writer = Writer::new()
-        .codec(codec(input.codec))
+        .codec(codec)
         .color_model(color_model)
         .channels(channels)
         .expect("generated channel counts are valid");
@@ -170,14 +175,21 @@ fuzz_target!(|data: &[u8]| {
                 }
                 bytes.truncate(256);
                 let level = usize::from(level) % expected.len();
-                let exp = &mut expected[level];
-                let col = u64::from(col) % exp.tiles_across;
-                let row = u64::from(row) % exp.tiles_down;
-                if let Ok(batch) = writer.put_tile_at_level(level, (col, row), &bytes) {
+                let tile_size = expected[level].tile_size;
+                let col = u64::from(col) % expected[level].tiles_across;
+                let row = u64::from(row) % expected[level].tiles_down;
+                let tile_data = if codec == Codec::Jpeg {
+                    unsafe {
+                        compress_to_jpeg(&bytes, tile_size.0 as u32, tile_size.1 as u32, channels)
+                    }
+                } else {
+                    bytes.clone()
+                };
+                if let Ok(batch) = writer.put_tile_at_level(level, (col, row), &tile_data) {
                     if !batch.is_empty() {
                         apply(&mut file, batch);
                     }
-                    exp.payloads.insert((col, row), bytes);
+                    expected[level].payloads.insert((col, row), tile_data);
                     assert_full_parse_invariants(&file, &expected, color_model, channels);
                 }
             }
@@ -198,27 +210,32 @@ fuzz_target!(|data: &[u8]| {
                 }
             }
             Operation::FeedWholeFile => {
-                last_request = advance_and_check(&mut reader, chunk_from_file(&file, 0, file.len()), &file);
+                last_request =
+                    advance_and_check(&mut reader, chunk_from_file(&file, 0, file.len()), &file);
             }
             Operation::FeedPrefix { len } => {
                 let end = usize::from(len).min(file.len());
-                last_request = advance_and_check(&mut reader, chunk_from_file(&file, 0, end), &file);
+                last_request =
+                    advance_and_check(&mut reader, chunk_from_file(&file, 0, end), &file);
             }
             Operation::FeedRange { start, len } => {
                 if !file.is_empty() {
                     let start = usize::from(start) % file.len();
-                    let end = start.saturating_add(usize::from(len) % 1024).min(file.len());
-                    last_request = advance_and_check(
-                        &mut reader,
-                        chunk_from_file(&file, start, end),
-                        &file,
-                    );
+                    let end = start
+                        .saturating_add(usize::from(len) % 1024)
+                        .min(file.len());
+                    last_request =
+                        advance_and_check(&mut reader, chunk_from_file(&file, start, end), &file);
                 }
             }
             Operation::FeedRequested => {
                 if let Some(range) = last_request.clone() {
-                    let start = usize::try_from(range.start).unwrap_or(usize::MAX).min(file.len());
-                    let end = usize::try_from(range.end).unwrap_or(usize::MAX).min(file.len());
+                    let start = usize::try_from(range.start)
+                        .unwrap_or(usize::MAX)
+                        .min(file.len());
+                    let end = usize::try_from(range.end)
+                        .unwrap_or(usize::MAX)
+                        .min(file.len());
                     if start <= end {
                         last_request = advance_and_check(
                             &mut reader,
@@ -242,10 +259,7 @@ fuzz_target!(|data: &[u8]| {
 
 fn deterministic_writer_regressions() {
     check_writer_case(
-        vec![
-            ((32, 32), (16, 16)),
-            ((16, 16), (16, 16)),
-        ],
+        vec![((32, 32), (16, 16)), ((16, 16), (16, 16))],
         Codec::Jpeg,
         ColorModel::YCbCr,
         3,
@@ -263,7 +277,10 @@ fn deterministic_writer_regressions() {
         Codec::Png,
         ColorModel::Rgb,
         3,
-        &[(0, 0, 0, b"left".as_slice()), (0, 1, 0, b"right".as_slice())],
+        &[
+            (0, 0, 0, b"left".as_slice()),
+            (0, 1, 0, b"right".as_slice()),
+        ],
     );
 }
 
@@ -276,30 +293,38 @@ fn check_writer_case(
 ) {
     let mut expected: Vec<_> = specs
         .iter()
-        .map(|&(dimensions, tile_size)| {
-            ExpectedLevel {
-                dimensions,
-                tile_size: (u64::from(tile_size.0), u64::from(tile_size.1)),
-                tiles_across: dimensions.0.div_ceil(u64::from(tile_size.0)),
-                tiles_down: dimensions.1.div_ceil(u64::from(tile_size.1)),
-                payloads: BTreeMap::new(),
-            }
+        .map(|&(dimensions, tile_size)| ExpectedLevel {
+            dimensions,
+            tile_size: (u64::from(tile_size.0), u64::from(tile_size.1)),
+            tiles_across: dimensions.0.div_ceil(u64::from(tile_size.0)),
+            tiles_down: dimensions.1.div_ceil(u64::from(tile_size.1)),
+            payloads: BTreeMap::new(),
         })
         .collect();
-    let mut builder = Writer::new().codec(codec).color_model(color_model).channels(channels).unwrap();
+    let mut builder = Writer::new()
+        .codec(codec)
+        .color_model(color_model)
+        .channels(channels)
+        .unwrap();
     for (dimensions, tile_size) in specs {
         builder = builder.level(LevelSpec::new(dimensions, tile_size).unwrap());
     }
     let mut writer = builder.build().expect("deterministic writer case is valid");
     let mut file = Vec::new();
     for &(level, col, row, bytes) in tiles {
+        let tile_size = expected[level].tile_size;
+        let tile_data: Vec<u8> = if codec == Codec::Jpeg {
+            unsafe { compress_to_jpeg(bytes, tile_size.0 as u32, tile_size.1 as u32, channels) }
+        } else {
+            bytes.to_vec()
+        };
         apply(
             &mut file,
             writer
-                .put_tile_at_level(level, (col, row), bytes)
+                .put_tile_at_level(level, (col, row), &tile_data)
                 .expect("deterministic tile coordinate is valid"),
         );
-        expected[level].payloads.insert((col, row), bytes.to_vec());
+        expected[level].payloads.insert((col, row), tile_data);
         assert_full_parse_invariants(&file, &expected, color_model, channels);
     }
 }
@@ -421,6 +446,68 @@ fn color_and_channels(choice: ColorChoice) -> (ColorModel, u16) {
     }
 }
 
+unsafe fn compress_to_jpeg(data: &[u8], width: u32, height: u32, channels: u16) -> Vec<u8> {
+    if width < 8 || height < 8 {
+        return data.to_vec();
+    }
+    let mut err: jpeg_error_mgr = std::mem::zeroed();
+    jpeg_std_error(&mut err);
+    let mut cinfo: jpeg_compress_struct = std::mem::zeroed();
+    cinfo.common.err = &mut err;
+    jpeg_create_compress(&mut cinfo);
+
+    let mut out_buf: *mut u8 = std::ptr::null_mut();
+    let mut out_size: c_ulong = 0;
+    jpeg_mem_dest(&mut cinfo, &mut out_buf, &mut out_size);
+
+    cinfo.image_width = width;
+    cinfo.image_height = height;
+    cinfo.input_components = channels as c_int;
+    cinfo.in_color_space = match channels {
+        1 => JCS_GRAYSCALE,
+        _ => JCS_RGB,
+    };
+
+    jpeg_set_defaults(&mut cinfo);
+    jpeg_set_quality(&mut cinfo, 75, 1);
+    jpeg_start_compress(&mut cinfo, 1);
+
+    let row_stride = width as usize * channels as usize;
+    let needed = height as usize * row_stride;
+    let padded: Vec<u8> = if data.len() >= needed {
+        data[..needed].to_vec()
+    } else {
+        let mut v = Vec::with_capacity(needed);
+        while v.len() < needed {
+            v.extend_from_slice(data);
+        }
+        v.truncate(needed);
+        v
+    };
+
+    while cinfo.next_scanline < cinfo.image_height {
+        let offset = cinfo.next_scanline as usize * row_stride;
+        let row_ptr = padded[offset..offset + row_stride].as_ptr();
+        let samparray: *const *const u8 = &row_ptr;
+        jpeg_write_scanlines(&mut cinfo, samparray, 1);
+    }
+
+    jpeg_finish_compress(&mut cinfo);
+    let result = if out_buf.is_null() {
+        Vec::new()
+    } else {
+        let len = out_size as usize;
+        std::slice::from_raw_parts(out_buf, len).to_vec()
+    };
+    jpeg_destroy_compress(&mut cinfo);
+
+    if result.is_empty() {
+        data.to_vec()
+    } else {
+        result
+    }
+}
+
 fn resize_expected(level: &mut ExpectedLevel, dimensions: (u64, u64), tile_size: (u64, u64)) {
     level.dimensions = dimensions;
     level.tile_size = tile_size;
@@ -484,7 +571,10 @@ fn assert_full_parse_invariants(
         assert_eq!(level.tile_count(), exp.tiles_across * exp.tiles_down);
         assert_eq!(level.color_model(), color_model);
         assert_eq!(level.channels(), channels);
-        assert_eq!(zif.get_level_tiles(level_index).unwrap().count() as u64, level.tile_count());
+        assert_eq!(
+            zif.get_level_tiles(level_index).unwrap().count() as u64,
+            level.tile_count()
+        );
 
         for row in 0..exp.tiles_down {
             for col in 0..exp.tiles_across {
@@ -525,9 +615,8 @@ fn assert_writer_directory_tags(file: &[u8], expected: &[ExpectedLevel]) {
         let dir_offset = usize::try_from(dir).expect("directory offset fits usize");
         assert!(dir_offset + 8 <= file.len());
         let count = usize::try_from(read_u64(file, dir_offset)).expect("entry count fits usize");
-        let has_ycbcr_subsampling =
-            entry_u16_value(file, dir_offset, TAG_CODEC) == 7
-                && entry_u16_value(file, dir_offset, TAG_COLOR) == 6;
+        let has_ycbcr_subsampling = entry_u16_value(file, dir_offset, TAG_CODEC) == 7
+            && entry_u16_value(file, dir_offset, TAG_COLOR) == 6;
         assert_eq!(count, 11 + usize::from(has_ycbcr_subsampling));
         let entries: Vec<_> = (0..count)
             .map(|index| {
@@ -566,8 +655,18 @@ fn assert_writer_directory_tags(file: &[u8], expected: &[ExpectedLevel]) {
         assert_entry(&entries, TAG_INTERLEAVE, TYPE_U16, 1);
         assert_entry(&entries, TAG_TILE_WIDTH, TYPE_U32, 1);
         assert_entry(&entries, TAG_TILE_HEIGHT, TYPE_U32, 1);
-        assert_entry(&entries, TAG_TILE_OFFSETS, TYPE_U64, exp.tiles_across * exp.tiles_down);
-        assert_entry(&entries, TAG_TILE_COUNTS, TYPE_U32, exp.tiles_across * exp.tiles_down);
+        assert_entry(
+            &entries,
+            TAG_TILE_OFFSETS,
+            TYPE_U64,
+            exp.tiles_across * exp.tiles_down,
+        );
+        assert_entry(
+            &entries,
+            TAG_TILE_COUNTS,
+            TYPE_U32,
+            exp.tiles_across * exp.tiles_down,
+        );
         if has_ycbcr_subsampling {
             assert_entry(&entries, TAG_YCBCR_SUBSAMPLING, TYPE_U16, 2);
         }
@@ -588,7 +687,10 @@ fn entry_u16_value(file: &[u8], dir_offset: usize, code: u16) -> u16 {
 }
 
 fn assert_entry(entries: &[RawEntry], code: u16, ty: u16, count: u64) {
-    let entry = entries.iter().find(|entry| entry.code == code).expect("tag is present");
+    let entry = entries
+        .iter()
+        .find(|entry| entry.code == code)
+        .expect("tag is present");
     assert_eq!(entry.ty, ty);
     assert_eq!(entry.count, count);
 }
@@ -623,13 +725,29 @@ fn assert_libtiff_reads_writer_output(
         let tiff = libtiff_sys::TIFFOpen(path.as_ptr(), mode.as_ptr());
         assert!(!tiff.is_null(), "libtiff failed to open writer output");
         for (index, exp) in expected.iter().enumerate() {
-            assert_libtiff_u32(tiff, libtiff_sys::TIFFTAG_IMAGEWIDTH, exp.dimensions.0 as u32);
-            assert_libtiff_u32(tiff, libtiff_sys::TIFFTAG_IMAGELENGTH, exp.dimensions.1 as u32);
+            assert_libtiff_u32(
+                tiff,
+                libtiff_sys::TIFFTAG_IMAGEWIDTH,
+                exp.dimensions.0 as u32,
+            );
+            assert_libtiff_u32(
+                tiff,
+                libtiff_sys::TIFFTAG_IMAGELENGTH,
+                exp.dimensions.1 as u32,
+            );
             assert_libtiff_u16(tiff, libtiff_sys::TIFFTAG_BITSPERSAMPLE, 8);
             assert_libtiff_u16(tiff, libtiff_sys::TIFFTAG_SAMPLESPERPIXEL, channels);
-            assert_libtiff_u16(tiff, libtiff_sys::TIFFTAG_PHOTOMETRIC, photometric(color_model));
+            assert_libtiff_u16(
+                tiff,
+                libtiff_sys::TIFFTAG_PHOTOMETRIC,
+                photometric(color_model),
+            );
             assert_libtiff_u32(tiff, libtiff_sys::TIFFTAG_TILEWIDTH, exp.tile_size.0 as u32);
-            assert_libtiff_u32(tiff, libtiff_sys::TIFFTAG_TILELENGTH, exp.tile_size.1 as u32);
+            assert_libtiff_u32(
+                tiff,
+                libtiff_sys::TIFFTAG_TILELENGTH,
+                exp.tile_size.1 as u32,
+            );
             assert_ne!(libtiff_sys::TIFFIsTiled(tiff), 0);
             assert_eq!(
                 libtiff_sys::TIFFNumberOfTiles(tiff),
@@ -673,7 +791,10 @@ fn assert_parsed_zif_invariants(file: &[u8], zif: &zif::Zif) {
         assert!(level.width() > 0);
         assert!(level.height() > 0);
         assert_eq!(level.dimensions(), (level.width(), level.height()));
-        assert_eq!(level.tile_count(), level.tile_grid().0 * level.tile_grid().1);
+        assert_eq!(
+            level.tile_count(),
+            level.tile_grid().0 * level.tile_grid().1
+        );
         let mut seen = 0;
         for tile in zif.get_level_tiles(level_index).expect("level exists") {
             assert_eq!(tile.level(), level_index);
@@ -702,11 +823,21 @@ fn assert_tile_geometry(tile: &zif::Tile<'_>, exp: &ExpectedLevel) {
     assert_eq!(tile.row(), tile.index() / exp.tiles_across);
     assert_eq!(tile.x(), tile.col() * exp.tile_size.0);
     assert_eq!(tile.y(), tile.row() * exp.tile_size.1);
-    assert_eq!(tile.width(), exp.tile_size.0.min(exp.dimensions.0 - tile.x()));
-    assert_eq!(tile.height(), exp.tile_size.1.min(exp.dimensions.1 - tile.y()));
+    assert_eq!(
+        tile.width(),
+        exp.tile_size.0.min(exp.dimensions.0 - tile.x())
+    );
+    assert_eq!(
+        tile.height(),
+        exp.tile_size.1.min(exp.dimensions.1 - tile.y())
+    );
 }
 
-fn assert_crop_count(zif: &zif::Zif, level_index: usize, region: (std::ops::Range<u64>, std::ops::Range<u64>)) {
+fn assert_crop_count(
+    zif: &zif::Zif,
+    level_index: usize,
+    region: (std::ops::Range<u64>, std::ops::Range<u64>),
+) {
     let level = zif.level(level_index).expect("level index in range");
     let expected = expected_crop_count(level, &region);
     let actual = zif
@@ -716,7 +847,10 @@ fn assert_crop_count(zif: &zif::Zif, level_index: usize, region: (std::ops::Rang
     assert_eq!(actual, expected);
 }
 
-fn expected_crop_count(level: &zif::Level, region: &(std::ops::Range<u64>, std::ops::Range<u64>)) -> u64 {
+fn expected_crop_count(
+    level: &zif::Level,
+    region: &(std::ops::Range<u64>, std::ops::Range<u64>),
+) -> u64 {
     let (tile_width, tile_height) = level.tile_size();
     let x0 = region.0.start.min(level.width());
     let x1 = region.0.end.min(level.width());

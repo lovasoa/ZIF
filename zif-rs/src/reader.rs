@@ -373,6 +373,7 @@ impl Reader {
 
     fn read_offset_array(&self, entry: &Entry) -> Result<ArrayParse<u64>> {
         match entry.ty {
+            TYPE_U16 => self.read_u16_as_u64_array(entry),
             TYPE_U32 => self.read_u32_as_u64_array(entry),
             TYPE_U64 => self.read_u64_array(entry),
             _ => Err(Error::MalformedFile("invalid tile offsets entry")),
@@ -381,6 +382,7 @@ impl Reader {
 
     fn read_count_array(&self, entry: &Entry) -> Result<ArrayParse<u32>> {
         match entry.ty {
+            TYPE_U16 => self.read_u16_as_u32_array(entry),
             TYPE_U32 => self.read_u32_array(entry),
             TYPE_U64 => self.read_u64_as_u32_array(entry),
             _ => Err(Error::MalformedFile("invalid tile byte counts entry")),
@@ -420,6 +422,24 @@ impl Reader {
             )?);
         }
         Ok(ArrayParse::Done(out))
+    }
+
+    fn read_u16_as_u32_array(&self, entry: &Entry) -> Result<ArrayParse<u32>> {
+        match self.read_u16_array(entry)? {
+            ArrayParse::Done(values) => Ok(ArrayParse::Done(
+                values.into_iter().map(u32::from).collect(),
+            )),
+            ArrayParse::Need(range) => Ok(ArrayParse::Need(range)),
+        }
+    }
+
+    fn read_u16_as_u64_array(&self, entry: &Entry) -> Result<ArrayParse<u64>> {
+        match self.read_u16_array(entry)? {
+            ArrayParse::Done(values) => Ok(ArrayParse::Done(
+                values.into_iter().map(u64::from).collect(),
+            )),
+            ArrayParse::Need(range) => Ok(ArrayParse::Need(range)),
+        }
     }
 
     fn read_u32_as_u64_array(&self, entry: &Entry) -> Result<ArrayParse<u64>> {

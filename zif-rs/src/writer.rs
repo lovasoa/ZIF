@@ -194,11 +194,7 @@ impl Writer {
         Ok(batch)
     }
 
-    pub fn put_tile(
-        &mut self,
-        coord: (u64, u64),
-        bytes: impl AsRef<[u8]>,
-    ) -> Result<WriteBatch> {
+    pub fn put_tile(&mut self, coord: (u64, u64), bytes: impl AsRef<[u8]>) -> Result<WriteBatch> {
         self.put_tile_at_level(0, coord, bytes)
     }
 
@@ -255,11 +251,7 @@ impl Writer {
         Ok(batch)
     }
 
-    pub fn set_dimensions(
-        &mut self,
-        level: usize,
-        dimensions: (u64, u64),
-    ) -> Result<WriteBatch> {
+    pub fn set_dimensions(&mut self, level: usize, dimensions: (u64, u64)) -> Result<WriteBatch> {
         if level >= self.levels.len() {
             return Err(Error::InvalidInput("level index out of range"));
         }
@@ -317,7 +309,10 @@ impl Writer {
             for v in &new_offsets {
                 push_u64(&mut buf, *v);
             }
-            batch.ops.push(WriteOp { offset: base, bytes: buf });
+            batch.ops.push(WriteOp {
+                offset: base,
+                bytes: buf,
+            });
             batch.ops.push(WriteOp {
                 offset: dir_offset + 8 + 9 * ENTRY_LEN as u64 + 12,
                 bytes: base.to_le_bytes().to_vec(),
@@ -337,7 +332,10 @@ impl Writer {
             for v in &new_counts {
                 push_u32(&mut buf, *v);
             }
-            batch.ops.push(WriteOp { offset: base, bytes: buf });
+            batch.ops.push(WriteOp {
+                offset: base,
+                bytes: buf,
+            });
             batch.ops.push(WriteOp {
                 offset: dir_offset + 8 + 10 * ENTRY_LEN as u64 + 12,
                 bytes: base.to_le_bytes().to_vec(),
@@ -355,14 +353,14 @@ impl Writer {
         };
 
         batch.ops.push(WriteOp {
-            offset: dir_offset + 8 + 0 * ENTRY_LEN as u64 + 12,
+            offset: dir_offset + 8 + 12,
             bytes: u32::try_from(dimensions.0)
                 .map_err(|_| Error::Unsupported("width exceeds u32"))?
                 .to_le_bytes()
                 .to_vec(),
         });
         batch.ops.push(WriteOp {
-            offset: dir_offset + 8 + 1 * ENTRY_LEN as u64 + 12,
+            offset: dir_offset + 8 + ENTRY_LEN as u64 + 12,
             bytes: u32::try_from(dimensions.1)
                 .map_err(|_| Error::Unsupported("height exceeds u32"))?
                 .to_le_bytes()
@@ -476,7 +474,12 @@ impl Writer {
 
         debug_assert_eq!(dir.len() as u64, dir_size);
 
-        let total_size = dir_size as usize + offsets_size as usize + counts_size as usize;
+        let total_size = usize::try_from(dir_size)
+            .map_err(|_| Error::Unsupported("dir size exceeds address space"))?
+            + usize::try_from(offsets_size)
+                .map_err(|_| Error::Unsupported("offsets size exceeds address space"))?
+            + usize::try_from(counts_size)
+                .map_err(|_| Error::Unsupported("counts size exceeds address space"))?;
         let mut payload = Vec::with_capacity(total_size);
         payload.extend_from_slice(&dir);
         payload.resize(total_size, 0);
@@ -692,9 +695,7 @@ impl Writer {
         let offset = self.file_len;
         self.file_len = self
             .file_len
-            .checked_add(
-                u64::try_from(len).map_err(|_| Error::InvalidInput("length too large"))?,
-            )
+            .checked_add(u64::try_from(len).map_err(|_| Error::InvalidInput("length too large"))?)
             .ok_or(Error::InvalidInput("file length overflow"))?;
         Ok(offset)
     }
