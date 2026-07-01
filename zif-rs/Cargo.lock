@@ -1686,7 +1686,7 @@ dependencies = [
 
 [[package]]
 name = "zif"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libtiff-sys",
  "mozjpeg-sys",
