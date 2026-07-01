@@ -9,6 +9,7 @@ readme = "README.md"
 repository = "https://github.com/lovasoa/ZIF"
 keywords = ["zif", "tiff", "image", "tiles"]
 categories = ["encoding", "multimedia::images", "parser-implementations"]
+exclude = ["tests/reallife.zif"]
 
 [features]
 default = []
