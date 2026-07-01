@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use zif::{Codec, ColorModel, LevelSpec, WriteBatch, Writer};
+use zif_tiff::{Codec, ColorModel, LevelSpec, WriteBatch, Writer};
 
 static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
 const JPEG_GRAY_16: &[u8] = include_bytes!("jpeg-gray-16.jpg");

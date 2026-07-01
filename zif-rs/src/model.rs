@@ -72,14 +72,14 @@ pub enum ChainKind {
 /// A byte-range request made by the reader or by a tile.
 ///
 /// ```
-/// let req = zif::Request::new(10..20)?;
+/// let req = zif_tiff::Request::new(10..20)?;
 /// assert_eq!(req.range(), 10..20);
 /// assert_eq!(req.start(), 10);
 /// assert_eq!(req.end(), 20);
 /// assert_eq!(req.len(), 10);
 /// assert!(!req.is_empty());
-/// assert!(zif::Request::new(4..4)?.is_empty());
-/// # Ok::<(), zif::Error>(())
+/// assert!(zif_tiff::Request::new(4..4)?.is_empty());
+/// # Ok::<(), zif_tiff::Error>(())
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
@@ -132,9 +132,9 @@ impl Request {
     /// Returns true when the requested range is empty.
     ///
     /// ```
-    /// let req = zif::Request::new(4..4)?;
+    /// let req = zif_tiff::Request::new(4..4)?;
     /// assert!(req.is_empty());
-    /// # Ok::<(), zif::Error>(())
+    /// # Ok::<(), zif_tiff::Error>(())
     /// ```
     pub fn is_empty(&self) -> bool {
         self.range.is_empty()
@@ -150,15 +150,15 @@ impl From<Request> for Range<u64> {
 /// A coherent byte chunk returned by an IO layer.
 ///
 /// ```
-/// let chunk = zif::Chunk::new(10..13, vec![1, 2, 3])?;
+/// let chunk = zif_tiff::Chunk::new(10..13, vec![1, 2, 3])?;
 /// assert_eq!(chunk.range(), 10..13);
 /// assert_eq!(chunk.start(), 10);
 /// assert_eq!(chunk.end(), 13);
 /// assert_eq!(chunk.bytes(), &[1, 2, 3]);
 ///
-/// let chunk = zif::Chunk::from_start(20, vec![4, 5])?;
+/// let chunk = zif_tiff::Chunk::from_start(20, vec![4, 5])?;
 /// assert_eq!(chunk.range(), 20..22);
-/// # Ok::<(), zif::Error>(())
+/// # Ok::<(), zif_tiff::Error>(())
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Chunk<B = Vec<u8>> {
@@ -241,20 +241,20 @@ impl<B: AsRef<[u8]>> Chunk<B> {
 /// Parsed ZIF metadata.
 ///
 /// ```
-/// let zif = zif::doctest::sample_zif();
+/// let zif = zif_tiff::doctest::sample_zif();
 /// assert_eq!(zif.dimensions(), (40, 40));
 /// assert_eq!(zif.width(), 40);
 /// assert_eq!(zif.height(), 40);
 /// assert_eq!(zif.level_count(), 1);
 /// assert_eq!(zif.levels().len(), 1);
 /// assert_eq!(zif.level(0)?.dimensions(), (40, 40));
-/// assert_eq!(zif.codec(), zif::Codec::Jpeg);
-/// assert_eq!(zif.color_model(), zif::ColorModel::YCbCr);
+/// assert_eq!(zif.codec(), zif_tiff::Codec::Jpeg);
+/// assert_eq!(zif.color_model(), zif_tiff::ColorModel::YCbCr);
 /// assert_eq!(zif.channels(), 3);
-/// assert_eq!(zif.chain_kind(), zif::ChainKind::Pyramid);
+/// assert_eq!(zif.chain_kind(), zif_tiff::ChainKind::Pyramid);
 /// assert_eq!(zif.get_level_tiles(0)?.count(), 9);
 /// assert_eq!(zif.get_cropped_level_tiles(0, (15..17, 0..16))?.count(), 2);
-/// # Ok::<(), zif::Error>(())
+/// # Ok::<(), zif_tiff::Error>(())
 /// ```
 #[derive(Debug, Clone)]
 pub struct Zif {
@@ -468,7 +468,7 @@ impl<'a> ZifView<'a> {
 /// Metadata for one image level.
 ///
 /// ```
-/// let zif = zif::doctest::sample_zif();
+/// let zif = zif_tiff::doctest::sample_zif();
 /// let level = zif.level(0)?;
 /// assert_eq!(level.dimensions(), (40, 40));
 /// assert_eq!(level.width(), 40);
@@ -476,11 +476,11 @@ impl<'a> ZifView<'a> {
 /// assert_eq!(level.tile_size(), (16, 16));
 /// assert_eq!(level.tile_grid(), (3, 3));
 /// assert_eq!(level.tile_count(), 9);
-/// assert_eq!(level.codec(), zif::Codec::Jpeg);
-/// assert_eq!(level.color_model(), zif::ColorModel::YCbCr);
+/// assert_eq!(level.codec(), zif_tiff::Codec::Jpeg);
+/// assert_eq!(level.color_model(), zif_tiff::ColorModel::YCbCr);
 /// assert_eq!(level.channels(), 3);
 /// assert_eq!(level.tile(2, 2)?.size(), (8, 8));
-/// # Ok::<(), zif::Error>(())
+/// # Ok::<(), zif_tiff::Error>(())
 /// ```
 #[derive(Debug, Clone)]
 pub struct Level {
@@ -614,10 +614,10 @@ impl Level {
     /// Returns the YCbCr subsampling factors recorded for JPEG YCbCr tiles.
     ///
     /// ```
-    /// let zif = zif::doctest::sample_zif();
+    /// let zif = zif_tiff::doctest::sample_zif();
     /// let level = zif.level(0)?;
     /// assert_eq!(level.ycbcr_subsampling(), Some((2, 2)));
-    /// # Ok::<(), zif::Error>(())
+    /// # Ok::<(), zif_tiff::Error>(())
     /// ```
     pub fn ycbcr_subsampling(&self) -> Option<(u16, u16)> {
         self.ycbcr_subsampling
@@ -658,9 +658,9 @@ impl Level {
 /// A pixel region represented as `x_range` and `y_range`.
 ///
 /// ```
-/// let region = zif::Region::new(10..20, 30..40)?;
+/// let region = zif_tiff::Region::new(10..20, 30..40)?;
 /// let _ = region;
-/// # Ok::<(), zif::Error>(())
+/// # Ok::<(), zif_tiff::Error>(())
 /// ```
 #[derive(Debug, Clone)]
 pub struct Region {
@@ -683,7 +683,7 @@ impl Region {
 /// Metadata for one encoded tile.
 ///
 /// ```
-/// let zif = zif::doctest::sample_zif();
+/// let zif = zif_tiff::doctest::sample_zif();
 /// let tile = zif.level(0)?.tile(2, 2)?;
 /// assert_eq!(tile.level(), 0);
 /// assert_eq!(tile.index(), 8);
@@ -696,8 +696,8 @@ impl Region {
 /// assert_eq!(tile.position(), (32, 32));
 /// assert_eq!(tile.size(), (8, 8));
 /// assert_eq!(tile.req().range(), tile.bytes());
-/// assert_eq!(tile.codec(), zif::Codec::Jpeg);
-/// # Ok::<(), zif::Error>(())
+/// assert_eq!(tile.codec(), zif_tiff::Codec::Jpeg);
+/// # Ok::<(), zif_tiff::Error>(())
 /// ```
 #[derive(Debug, Clone)]
 pub struct Tile<'a> {
@@ -779,10 +779,10 @@ impl Tile<'_> {
     /// Returns the encoded tile byte range in the ZIF file.
     ///
     /// ```
-    /// let zif = zif::doctest::sample_zif();
+    /// let zif = zif_tiff::doctest::sample_zif();
     /// let tile = zif.level(0)?.tile(0, 0)?;
     /// assert!(!tile.bytes().is_empty());
-    /// # Ok::<(), zif::Error>(())
+    /// # Ok::<(), zif_tiff::Error>(())
     /// ```
     pub fn bytes(&self) -> Range<u64> {
         let i = usize::try_from(self.index)

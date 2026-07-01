@@ -2,7 +2,7 @@ extern crate alloc;
 
 use std::{env, io};
 
-pub use zif::{Chunk, Error, Request, WriteBatch, WriteOp};
+pub use zif_tiff::{Chunk, Error, Request, WriteBatch, WriteOp};
 
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -61,23 +61,23 @@ fn usage() -> io::Error {
     )
 }
 
-async fn read_metadata(http: &http_driver::HttpRangeReader) -> io::Result<zif::Zif> {
-    let mut reader = zif::Reader::new();
-    let mut status = reader.advance(zif::Chunk::default()).map_err(io_error)?;
+async fn read_metadata(http: &http_driver::HttpRangeReader) -> io::Result<zif_tiff::Zif> {
+    let mut reader = zif_tiff::Reader::new();
+    let mut status = reader.advance(zif_tiff::Chunk::default()).map_err(io_error)?;
 
     loop {
         match status {
-            zif::ReadStatus::Need { req, .. } => {
+            zif_tiff::ReadStatus::Need { req, .. } => {
                 let chunk = http.fetch(req).await.map_err(io_error)?;
                 status = reader.advance(chunk).map_err(io_error)?;
             }
-            zif::ReadStatus::Done { zif } => return Ok(zif.as_zif().clone()),
+            zif_tiff::ReadStatus::Done { zif } => return Ok(zif.as_zif().clone()),
         }
     }
 }
 
-fn writer_for(zif: &zif::Zif) -> io::Result<zif::Writer> {
-    let mut builder = zif::Writer::new()
+fn writer_for(zif: &zif_tiff::Zif) -> io::Result<zif_tiff::Writer> {
+    let mut builder = zif_tiff::Writer::new()
         .codec(zif.codec())
         .color_model(zif.color_model())
         .channels(zif.channels())
@@ -104,14 +104,14 @@ fn writer_for(zif: &zif::Zif) -> io::Result<zif::Writer> {
             u32::try_from(tile_height)
                 .map_err(|_| invalid_data("tile height does not fit in u32"))?,
         );
-        let spec = zif::LevelSpec::new(level.dimensions(), tile_size).map_err(io_error)?;
+        let spec = zif_tiff::LevelSpec::new(level.dimensions(), tile_size).map_err(io_error)?;
         builder = builder.level(spec);
     }
 
     builder.build().map_err(io_error)
 }
 
-async fn fetch_tile(http: &http_driver::HttpRangeReader, req: zif::Request) -> io::Result<Vec<u8>> {
+async fn fetch_tile(http: &http_driver::HttpRangeReader, req: zif_tiff::Request) -> io::Result<Vec<u8>> {
     if req.is_empty() {
         return Ok(Vec::new());
     }
@@ -129,7 +129,7 @@ async fn fetch_tile(http: &http_driver::HttpRangeReader, req: zif::Request) -> i
     Ok(chunk.bytes()[start..start + len].to_vec())
 }
 
-fn io_error(err: zif::Error) -> io::Error {
+fn io_error(err: zif_tiff::Error) -> io::Error {
     invalid_data(err.to_string())
 }
 

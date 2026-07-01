@@ -1685,7 +1685,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zif"
+name = "zif-tiff"
 version = "0.1.1"
 dependencies = [
  "libtiff-sys",

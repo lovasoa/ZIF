@@ -1,4 +1,4 @@
-use zif::{Chunk, Codec, ColorModel, ReadStatus, Reader, WriteBatch, Writer};
+use zif_tiff::{Chunk, Codec, ColorModel, ReadStatus, Reader, WriteBatch, Writer};
 
 fn apply(file: &mut Vec<u8>, batch: WriteBatch) {
     for op in batch.into_ops() {
@@ -11,7 +11,7 @@ fn apply(file: &mut Vec<u8>, batch: WriteBatch) {
     }
 }
 
-fn read_all(file: &[u8]) -> zif::Zif {
+fn read_all(file: &[u8]) -> zif_tiff::Zif {
     let mut reader = Reader::new();
     let status = reader
         .advance(Chunk::from_start(0, file.to_vec()).unwrap())

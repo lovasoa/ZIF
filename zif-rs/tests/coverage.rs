@@ -1,4 +1,4 @@
-use zif::{
+use zif_tiff::{
     ChainKind, Chunk, Codec, ColorModel, Error, LevelSpec, ReadStatus, Reader, Request, WriteBatch,
     Writer,
 };
@@ -36,7 +36,7 @@ fn reader_file(
     file
 }
 
-fn parse(file: &[u8]) -> zif::Zif {
+fn parse(file: &[u8]) -> zif_tiff::Zif {
     let mut reader = Reader::new();
     assert!(matches!(
         reader

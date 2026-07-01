@@ -36,10 +36,10 @@ impl Reader {
     /// Creates a new Sans-IO reader.
     ///
     /// ```
-    /// let mut reader = zif::Reader::new();
-    /// let status = reader.advance(zif::Chunk::default())?;
-    /// assert!(matches!(status, zif::ReadStatus::Need { .. }));
-    /// # Ok::<(), zif::Error>(())
+    /// let mut reader = zif_tiff::Reader::new();
+    /// let status = reader.advance(zif_tiff::Chunk::default())?;
+    /// assert!(matches!(status, zif_tiff::ReadStatus::Need { .. }));
+    /// # Ok::<(), zif_tiff::Error>(())
     /// ```
     pub fn new() -> Self {
         Self {
@@ -54,11 +54,11 @@ impl Reader {
     /// requested range, or the whole file.
     ///
     /// ```
-    /// let file = zif::doctest::sample_file();
-    /// let mut reader = zif::Reader::new();
-    /// let status = reader.advance(zif::Chunk::from_start(0, file)?)?;
-    /// assert!(matches!(status, zif::ReadStatus::Done { .. }));
-    /// # Ok::<(), zif::Error>(())
+    /// let file = zif_tiff::doctest::sample_file();
+    /// let mut reader = zif_tiff::Reader::new();
+    /// let status = reader.advance(zif_tiff::Chunk::from_start(0, file)?)?;
+    /// assert!(matches!(status, zif_tiff::ReadStatus::Done { .. }));
+    /// # Ok::<(), zif_tiff::Error>(())
     /// ```
     pub fn advance<B: AsRef<[u8]>>(&mut self, chunk: Chunk<B>) -> Result<ReadStatus<'_>> {
         if !chunk.bytes().is_empty() {
@@ -90,11 +90,11 @@ impl Reader {
     /// complete file metadata.
     ///
     /// ```
-    /// let file = zif::doctest::sample_file();
-    /// let mut reader = zif::Reader::new();
-    /// reader.advance(zif::Chunk::from_start(0, file)?)?;
+    /// let file = zif_tiff::doctest::sample_file();
+    /// let mut reader = zif_tiff::Reader::new();
+    /// reader.advance(zif_tiff::Chunk::from_start(0, file)?)?;
     /// assert_eq!(reader.zif()?.dimensions(), (40, 40));
-    /// # Ok::<(), zif::Error>(())
+    /// # Ok::<(), zif_tiff::Error>(())
     /// ```
     pub fn zif(&self) -> Result<&Zif> {
         self.zif.as_ref().ok_or(Error::Incomplete)

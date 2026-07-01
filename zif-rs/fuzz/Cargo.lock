@@ -571,10 +571,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
-name = "zif"
-version = "0.1.0"
-
-[[package]]
 name = "zif-fuzz"
 version = "0.0.0"
 dependencies = [
@@ -582,5 +578,9 @@ dependencies = [
  "libfuzzer-sys",
  "libtiff-sys",
  "mozjpeg-sys",
- "zif",
+ "zif-tiff",
 ]
+
+[[package]]
+name = "zif-tiff"
+version = "0.1.1"
