@@ -22,40 +22,35 @@ The core crate is Sans-IO: it parses metadata, plans byte-range requests, expose
 Read a ZIF file and inspect its dimensions:
 
 ```rust
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use zif_tiff::{sample_zif_bytes, std::RangeReader};
+use zif_tiff::{sample_zif_bytes, std::RangeReader};
 
-    let zif = RangeReader::from(sample_zif_bytes()).read_zif()?;
-    println!("{} x {}, {} levels", zif.width(), zif.height(), zif.level_count());
+let zif = RangeReader::from(sample_zif_bytes()).read_zif()?;
+println!("{} x {}, {} levels", zif.width(), zif.height(), zif.level_count());
 
-    Ok(())
-}
+# Ok::<(), zif_tiff::Error>(())
 ```
 
 Use the Sans-IO reader when you want explicit control over range requests, for example to fetch the encoded tiles intersecting a viewport:
 
 ```rust
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use zif_tiff::{sample_zif_bytes, Chunk, ReadStatus, Reader, std::RangeReader};
+use zif_tiff::{sample_zif_bytes, Chunk, ReadStatus, Reader, std::RangeReader};
 
-    let mut io = RangeReader::from(sample_zif_bytes());
-    let mut reader = Reader::new();
-    let mut chunk = Chunk::default();
+let mut io = RangeReader::from(sample_zif_bytes());
+let mut reader = Reader::new();
+let mut chunk = Chunk::default();
 
-    let zif = loop {
-        match reader.advance(chunk)? {
-            ReadStatus::Need { req, .. } => chunk = io.fetch(req)?,
-            ReadStatus::Done { zif } => break zif.as_zif().clone(),
-        }
-    };
-
-    for tile in zif.get_cropped_level_tiles(0, (0..20, 0..20))? {
-        let encoded_tile = io.fetch(tile.req())?;
-        println!("tile {:?}, {} bytes", tile.position(), encoded_tile.bytes().len());
-    }
-
-    Ok(())
+while let ReadStatus::Need { req, .. } = reader.advance(chunk)? {
+    chunk = io.fetch(req)?;
 }
+
+let zif = reader.into_zif()?;
+
+for tile in zif.get_cropped_level_tiles(0, (0..20, 0..20))? {
+    let encoded_tile = io.fetch(tile.req())?;
+    println!("tile {:?}, {} bytes", tile.position(), encoded_tile.bytes().len());
+}
+
+# Ok::<(), zif_tiff::Error>(())
 ```
 
 The bytes returned for a tile are the original encoded JPEG or PNG stream. Decode them with the image library appropriate for your application.
@@ -130,36 +125,32 @@ The reader does not expose decoded pixels.
 For normal reads, use an IO adapter to get a `Zif` object directly.
 
 ```rust
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use zif_tiff::{sample_zif_bytes, std::RangeReader};
+use zif_tiff::{sample_zif_bytes, std::RangeReader};
 
-    let zif = RangeReader::from(sample_zif_bytes()).read_zif()?;
+let zif = RangeReader::from(sample_zif_bytes()).read_zif()?;
 
-    println!("dimensions: {:?}", zif.dimensions());
-    println!("codec: {:?}", zif.codec());
-    println!("color model: {:?}", zif.color_model());
+println!("dimensions: {:?}", zif.dimensions());
+println!("codec: {:?}", zif.codec());
+println!("color model: {:?}", zif.color_model());
 
-    Ok(())
-}
+# Ok::<(), zif_tiff::Error>(())
 ```
 
 The same helper works with any `Read + Seek` object:
 
 ```rust
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let bytes = zif_tiff::sample_zif_bytes();
-    let cursor = std::io::Cursor::new(bytes);
-    let zif = zif_tiff::std::read_zif(cursor)?;
+let bytes = zif_tiff::sample_zif_bytes();
+let cursor = std::io::Cursor::new(bytes);
+let zif = zif_tiff::std::read_zif(cursor)?;
 
-    assert_eq!(zif.dimensions(), (40, 40));
+assert_eq!(zif.dimensions(), (40, 40));
 
-    Ok(())
-}
+# Ok::<(), zif_tiff::Error>(())
 ```
 
 Optional adapters provide equivalent helpers for async files and HTTP:
 
-```text
+```rust,ignore
 let zif = zif_tiff::tokio::read_zif(file).await?;
 let zif = zif_tiff::reqwest::read_zif("https://example.com/slide.zif").await?;
 ```
@@ -169,34 +160,30 @@ let zif = zif_tiff::reqwest::read_zif("https://example.com/slide.zif").await?;
 All tiles at a level:
 
 ```rust
-fn main() -> zif_tiff::Result<()> {
-    let zif = zif_tiff::sample::zif();
+let zif = zif_tiff::sample::zif();
 
-    for tile in zif.get_level_tiles(0)? {
-        println!("tile {} at {:?} uses bytes {:?}", tile.index(), tile.position(), tile.bytes());
-    }
-
-    Ok(())
+for tile in zif.get_level_tiles(0)? {
+    println!("tile {} at {:?} uses bytes {:?}", tile.index(), tile.position(), tile.bytes());
 }
+
+# Ok::<(), zif_tiff::Error>(())
 ```
 
 Tiles intersecting a viewport:
 
 ```rust
-fn main() -> zif_tiff::Result<()> {
-    let zif = zif_tiff::sample::zif();
+let zif = zif_tiff::sample::zif();
 
-    for tile in zif.get_cropped_level_tiles(0, (0..20, 0..20))? {
-        println!("visible tile {:?}, size {:?}", tile.position(), tile.size());
-    }
-
-    Ok(())
+for tile in zif.get_cropped_level_tiles(0, (0..20, 0..20))? {
+    println!("visible tile {:?}, size {:?}", tile.position(), tile.size());
 }
+
+# Ok::<(), zif_tiff::Error>(())
 ```
 
 Tile values are lightweight metadata objects:
 
-```text
+```rust,ignore
 impl Tile {
     pub fn level(&self) -> usize;
     pub fn index(&self) -> u64;
@@ -217,21 +204,19 @@ Use `tile.bytes()` when you only need the raw byte range. Use `tile.req()` when 
 The core API works with any backend that can fetch byte ranges and return `Chunk` values. The `std` adapter works with files and with any `Read + Seek` object:
 
 ```rust
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use zif_tiff::{sample_zif_bytes, std::RangeReader};
+use zif_tiff::{sample_zif_bytes, std::RangeReader};
 
-    let mut io = RangeReader::from(sample_zif_bytes());
-    let chunk = io.fetch(zif_tiff::Request::new(0..16)?)?;
+let mut io = RangeReader::from(sample_zif_bytes());
+let chunk = io.fetch(zif_tiff::Request::new(0..16)?)?;
 
-    assert_eq!(chunk.range(), 0..16);
+assert_eq!(chunk.range(), 0..16);
 
-    Ok(())
-}
+# Ok::<(), zif_tiff::Error>(())
 ```
 
 Optional adapters cover common filesystem and HTTP cases:
 
-```text
+```rust,ignore
 let mut file_io = zif_tiff::std::FileRangeReader::open("slide.zif")?;
 let mut tokio_io = zif_tiff::tokio::FileRangeReader::open("slide.zif").await?;
 let http_io = zif_tiff::reqwest::HttpRangeReader::new("https://example.com/slide.zif");
@@ -243,7 +228,7 @@ Use the Sans-IO `Reader` directly when integrating with a custom storage layer o
 
 Custom backends are straightforward because the reader only needs `Request` in and `Chunk` out.
 
-```text
+```rust,ignore
 while let zif_tiff::ReadStatus::Need { req, .. } = reader.advance(chunk)? {
     let bytes = object_store.get_range(req.range()).await?;
     chunk = zif_tiff::Chunk::new(req.range(), bytes)?;
@@ -257,47 +242,43 @@ The writer emits write operations for the caller to apply. It does not own a fil
 Create a one-level image:
 
 ```rust
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use zif_tiff::std::RangeWriter;
+use zif_tiff::std::RangeWriter;
 
-    let mut file = RangeWriter::from(Vec::new());
-    let mut writer = zif_tiff::Writer::new()
-        .dimensions((100_000, 80_000))
-        .tile_size((512, 512))?
-        .codec(zif_tiff::Codec::Jpeg)
-        .color_model(zif_tiff::ColorModel::YCbCr)
-        .channels(3)?
-        .build()?;
+let mut file = RangeWriter::from(Vec::new());
+let mut writer = zif_tiff::Writer::new()
+    .dimensions((100_000, 80_000))
+    .tile_size((512, 512))?
+    .codec(zif_tiff::Codec::Jpeg)
+    .color_model(zif_tiff::ColorModel::YCbCr)
+    .channels(3)?
+    .build()?;
 
-    file.apply(writer.put_tile((0, 0), b"encoded-jpeg")?)?;
-    let bytes = file.into_inner().into_inner();
+file.apply(writer.put_tile((0, 0), b"encoded-jpeg")?)?;
+let bytes = file.into_inner().into_inner();
 
-    println!("wrote {} bytes", bytes.len());
+println!("wrote {} bytes", bytes.len());
 
-    Ok(())
-}
+# Ok::<(), zif_tiff::Error>(())
 ```
 
 Create a conformant pyramid automatically:
 
 ```rust
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use zif_tiff::std::RangeWriter;
+use zif_tiff::std::RangeWriter;
 
-    let mut file = RangeWriter::from(Vec::new());
-    let mut writer = zif_tiff::Writer::new()
-        .dimensions((100_000, 80_000))
-        .tile_size((512, 512))?
-        .pyramid()
-        .codec(zif_tiff::Codec::Jpeg)
-        .color_model(zif_tiff::ColorModel::YCbCr)
-        .channels(3)?
-        .build()?;
+let mut file = RangeWriter::from(Vec::new());
+let mut writer = zif_tiff::Writer::new()
+    .dimensions((100_000, 80_000))
+    .tile_size((512, 512))?
+    .pyramid()
+    .codec(zif_tiff::Codec::Jpeg)
+    .color_model(zif_tiff::ColorModel::YCbCr)
+    .channels(3)?
+    .build()?;
 
-    file.apply(writer.put_tile_at_level(1, (3, 4), b"encoded-jpeg")?)?;
+file.apply(writer.put_tile_at_level(1, (3, 4), b"encoded-jpeg")?)?;
 
-    Ok(())
-}
+# Ok::<(), zif_tiff::Error>(())
 ```
 
 Use `.pyramid()` to build levels down to a single tile, or `.pyramid_to_1x1()` to continue until the final level is exactly 1 x 1 pixels.
@@ -305,23 +286,21 @@ Use `.pyramid()` to build levels down to a single tile, or `.pyramid_to_1x1()` t
 Update dimensions and continue adding tiles:
 
 ```rust
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use zif_tiff::std::RangeWriter;
+use zif_tiff::std::RangeWriter;
 
-    let mut file = RangeWriter::from(Vec::new());
-    let mut writer = zif_tiff::Writer::new()
-        .dimensions((100_000, 80_000))
-        .tile_size((512, 512))?
-        .codec(zif_tiff::Codec::Jpeg)
-        .color_model(zif_tiff::ColorModel::YCbCr)
-        .channels(3)?
-        .build()?;
+let mut file = RangeWriter::from(Vec::new());
+let mut writer = zif_tiff::Writer::new()
+    .dimensions((100_000, 80_000))
+    .tile_size((512, 512))?
+    .codec(zif_tiff::Codec::Jpeg)
+    .color_model(zif_tiff::ColorModel::YCbCr)
+    .channels(3)?
+    .build()?;
 
-    file.apply(writer.set_dimensions(0, (120_000, 90_000))?)?;
-    file.apply(writer.put_tile((12, 8), b"encoded-jpeg")?)?;
+file.apply(writer.set_dimensions(0, (120_000, 90_000))?)?;
+file.apply(writer.put_tile((12, 8), b"encoded-jpeg")?)?;
 
-    Ok(())
-}
+# Ok::<(), zif_tiff::Error>(())
 ```
 
 Writer updates use an append-first, pointer-last layout. Existing valid structures remain in place until replacement structures and tile bytes have been written. The final pointer update switches the file to the new valid layout.

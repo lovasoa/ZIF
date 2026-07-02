@@ -26,7 +26,9 @@ async fn run() -> io::Result<()> {
 
     let zif = read_metadata(&http).await?;
     let mut writer = writer_for(&zif)?;
-    let mut file = file_driver::FileRangeWriter::create(output).await?;
+    let mut file = file_driver::FileRangeWriter::create(output)
+        .await
+        .map_err(io_error)?;
 
     for level_index in 0..zif.level_count() {
         for tile in zif.get_level_tiles(level_index).map_err(io_error)? {
@@ -34,7 +36,7 @@ async fn run() -> io::Result<()> {
             let batch = writer
                 .put_tile_at_level(level_index, (tile.col(), tile.row()), bytes)
                 .map_err(io_error)?;
-            file.apply(batch).await?;
+            file.apply(batch).await.map_err(io_error)?;
         }
     }
 

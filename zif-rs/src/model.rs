@@ -236,6 +236,11 @@ impl<B: AsRef<[u8]>> Chunk<B> {
     pub fn end(&self) -> u64 {
         self.range.end
     }
+
+    /// Consumes the chunk and returns its range and byte buffer.
+    pub fn into_parts(self) -> (Range<u64>, B) {
+        (self.range, self.bytes)
+    }
 }
 
 /// Parsed ZIF metadata.

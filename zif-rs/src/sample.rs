@@ -44,7 +44,7 @@ pub fn zif() -> Zif {
         .advance(Chunk::from_start(0, file).expect("coherent chunk"))
         .expect("sample parses");
     assert!(matches!(status, ReadStatus::Done { .. }));
-    reader.zif().expect("reader is done").clone()
+    reader.into_zif().expect("reader is done")
 }
 
 fn apply(file: &mut Vec<u8>, batch: WriteBatch) {

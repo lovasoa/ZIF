@@ -579,10 +579,10 @@ fn fuzz_incremental_reads(file: &[u8], reads: Vec<ReadPlan>) {
                     check_done_reader(&reader, file);
                     request = None;
                 }
-                Err(Error::MalformedFile(_) | Error::InvalidInput(_) | Error::Unsupported(_)) => {}
                 Err(Error::Incomplete) => {
                     panic!("advance should return NeedMore instead of Incomplete")
                 }
+                Err(_) => {}
             }
         }
     }
@@ -598,8 +598,8 @@ fn parse_full_and_check(file: &[u8]) {
     {
         Ok(ReadStatus::Done { .. }) => check_done_reader(&reader, file),
         Ok(ReadStatus::Need { req, .. }) => assert!(req.start() <= req.end()),
-        Err(Error::MalformedFile(_) | Error::InvalidInput(_) | Error::Unsupported(_)) => {}
         Err(Error::Incomplete) => panic!("advance should return NeedMore instead of Incomplete"),
+        Err(_) => {}
     }
 }
 

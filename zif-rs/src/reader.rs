@@ -60,10 +60,18 @@ impl Reader {
     /// assert!(matches!(status, zif_tiff::ReadStatus::Done { .. }));
     /// # Ok::<(), zif_tiff::Error>(())
     /// ```
-    pub fn advance<B: AsRef<[u8]>>(&mut self, chunk: Chunk<B>) -> Result<ReadStatus<'_>> {
-        if !chunk.bytes().is_empty() {
-            self.insert_chunk(chunk.range(), chunk.bytes())?;
+    pub fn advance<B>(&mut self, chunk: Chunk<B>) -> Result<ReadStatus<'_>>
+    where
+        B: AsRef<[u8]> + Into<Vec<u8>>,
+    {
+        let (range, bytes) = chunk.into_parts();
+        if !bytes.as_ref().is_empty() {
+            self.insert_chunk_vec(range, bytes.into())?;
         }
+        self.advance_cached()
+    }
+
+    fn advance_cached(&mut self) -> Result<ReadStatus<'_>> {
         match self.try_parse()? {
             Parse::Done(zif) => {
                 self.zif = Some(zif);
@@ -100,7 +108,25 @@ impl Reader {
         self.zif.as_ref().ok_or(Error::Incomplete)
     }
 
-    fn insert_chunk(&mut self, range: Range<u64>, bytes: &[u8]) -> Result<()> {
+    /// Returns the parsed ZIF metadata, consuming the reader without cloning.
+    ///
+    /// Call this after `advance` has returned `Done`.
+    pub fn into_zif(self) -> Result<Zif> {
+        self.zif.ok_or(Error::Incomplete)
+    }
+
+    fn insert_chunk_vec(&mut self, range: Range<u64>, bytes: Vec<u8>) -> Result<()> {
+        self.validate_overlap(range.clone(), &bytes)?;
+        self.cache.push(Cached {
+            start: range.start,
+            bytes,
+        });
+        self.cache.sort_by_key(|c| c.start);
+        self.merge_cache();
+        Ok(())
+    }
+
+    fn validate_overlap(&self, range: Range<u64>, bytes: &[u8]) -> Result<()> {
         for cached in &self.cache {
             let start = range.start.max(cached.start);
             let end = range.end.min(cached.end());
@@ -116,12 +142,6 @@ impl Reader {
                 }
             }
         }
-        self.cache.push(Cached {
-            start: range.start,
-            bytes: bytes.to_vec(),
-        });
-        self.cache.sort_by_key(|c| c.start);
-        self.merge_cache();
         Ok(())
     }
 
@@ -161,7 +181,7 @@ impl Reader {
     fn try_parse(&self) -> Result<Parse> {
         let header = match self.require(0..16) {
             Ok(h) => h,
-            Err(r) => return Ok(need(r, &[])),
+            Err(r) => return Ok(need(r, Vec::new())),
         };
         let mut first8 = [0u8; 8];
         first8.copy_from_slice(&header[..8]);
@@ -185,7 +205,7 @@ impl Reader {
                 .ok_or(Error::MalformedFile("directory range overflow"))?;
             let count_bytes = match self.require(count_range) {
                 Ok(b) => b,
-                Err(r) => return Ok(need(r, &levels)),
+                Err(r) => return Ok(need(r, levels)),
             };
             let entry_count = read_u64(count_bytes, 0)?;
             if entry_count > 4096 {
@@ -204,12 +224,12 @@ impl Reader {
                 .ok_or(Error::MalformedFile("directory range overflow"))?;
             let body = match self.require(body_range) {
                 Ok(b) => b,
-                Err(r) => return Ok(need(r, &levels)),
+                Err(r) => return Ok(need(r, levels)),
             };
             let (entries, next) = parse_entries(body, entry_count)?;
             let level = match self.parse_level(levels.len(), &entries)? {
                 LevelParse::Done(level) => level,
-                LevelParse::Need(range) => return Ok(need(range, &levels)),
+                LevelParse::Need(range) => return Ok(need(range, levels)),
             };
             levels.push(level);
             dir = next;
@@ -521,10 +541,10 @@ enum Parse {
     Done(Zif),
 }
 
-fn need(range: Range<u64>, levels: &[Level]) -> Parse {
+fn need(range: Range<u64>, levels: Vec<Level>) -> Parse {
     Parse::Need {
         range,
-        partial: (!levels.is_empty()).then(|| Zif::new(levels.to_vec())),
+        partial: (!levels.is_empty()).then(|| Zif::new(levels)),
     }
 }
 enum LevelParse {

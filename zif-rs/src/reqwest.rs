@@ -29,7 +29,7 @@ impl HttpRangeReader {
             .header(reqwest::header::RANGE, header)
             .send()
             .await
-            .map_err(|_| crate::Error::InvalidInput("http request failed"))?;
+            .map_err(http_error)?;
         let status = res.status();
         let range = if status == reqwest::StatusCode::OK {
             None
@@ -42,11 +42,7 @@ impl HttpRangeReader {
         } else {
             return Err(crate::Error::InvalidInput("unexpected http status"));
         };
-        let bytes = res
-            .bytes()
-            .await
-            .map_err(|_| crate::Error::InvalidInput("failed to read http body"))?
-            .to_vec();
+        let bytes = res.bytes().await.map_err(http_error)?.to_vec();
         match range {
             Some(r) => Chunk::new(r, bytes),
             None => Chunk::from_start(0, bytes),
@@ -59,10 +55,14 @@ impl HttpRangeReader {
 
         loop {
             match reader.advance(chunk)? {
-                ReadStatus::Need { req, .. } => chunk = self.fetch(req).await?,
-                ReadStatus::Done { zif } => return Ok(zif.as_zif().clone()),
+                ReadStatus::Need { req, .. } => {
+                    chunk = self.fetch(req).await?;
+                }
+                ReadStatus::Done { .. } => break,
             }
         }
+
+        reader.into_zif()
     }
 }
 
@@ -78,4 +78,14 @@ fn parse_content_range(value: Option<&str>) -> Option<core::ops::Range<u64>> {
     let start = start.parse().ok()?;
     let end: u64 = end.parse().ok()?;
     Some(start..end.checked_add(1)?)
+}
+
+#[cfg(feature = "reqwest")]
+fn http_error(err: reqwest::Error) -> crate::Error {
+    crate::Error::Http(err)
+}
+
+#[cfg(not(feature = "reqwest"))]
+fn http_error(_: reqwest::Error) -> crate::Error {
+    crate::Error::InvalidInput("http request failed")
 }
