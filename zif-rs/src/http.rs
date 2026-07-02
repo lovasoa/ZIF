@@ -7,7 +7,7 @@ use http_body::Body as HttpBody;
 use http_body_util::BodyExt;
 use tower_service::Service;
 
-use crate::{Chunk, ReadStatus, Reader, Request, Result, Zif};
+use crate::{ByteRange, DataChunk, Image, ParseState, Parser, Result};
 
 /// A ZIF reader backed by any [`tower_service::Service`] that can execute
 /// HTTP requests.
@@ -22,7 +22,7 @@ use crate::{Chunk, ReadStatus, Reader, Request, Result, Zif};
 /// let client = reqwest::Client::new();
 /// let url: http::Uri = "https://example.com/slide.zif".parse()?;
 /// let mut reader = HttpRangeReader::new(client, url);
-/// let zif = reader.read_zif().await?;
+/// let image = reader.read_zif().await?;
 /// ```
 pub struct HttpRangeReader<S, R = HttpRequest<Vec<u8>>, ResBody = Vec<u8>> {
     service: S,
@@ -54,12 +54,12 @@ where
     ResBody: HttpBody,
     ResBody::Error: std::error::Error + Send + Sync + 'static,
 {
-    pub async fn fetch(&mut self, req: Request) -> Result<Chunk> {
-        if req.is_empty() {
-            return Chunk::from_start(req.start(), Vec::new());
+    pub async fn fetch(&mut self, range: ByteRange) -> Result<DataChunk> {
+        if range.is_empty() {
+            return DataChunk::from_start(range.start(), Vec::new());
         }
 
-        let range_header = format!("bytes={}-{}", req.start(), req.end() - 1);
+        let range_header = format!("bytes={}-{}", range.start(), range.end() - 1);
 
         let http_req = HttpRequest::builder()
             .uri(&self.url)
@@ -67,7 +67,8 @@ where
             .body(Vec::new())
             .map_err(|e| crate::Error::Http(Box::new(e)))?;
 
-        let service_req = R::try_from(http_req).map_err(|e| crate::Error::Http(Box::new(e)))?;
+        let service_req =
+            R::try_from(http_req).map_err(|e| crate::Error::Http(Box::new(e)))?;
 
         let res = self
             .service
@@ -84,22 +85,22 @@ where
             .to_bytes()
             .to_vec();
 
-        Chunk::try_from(HttpResponse::from_parts(parts, bytes))
+        DataChunk::try_from(HttpResponse::from_parts(parts, bytes))
     }
 
-    pub async fn read_zif(&mut self) -> Result<Zif> {
-        let mut reader = Reader::new();
-        let mut chunk = Chunk::default();
+    pub async fn read_zif(&mut self) -> Result<Image> {
+        let mut parser = Parser::new();
+        let mut chunk = DataChunk::default();
 
-        while let ReadStatus::Need { req, .. } = reader.advance(chunk)? {
-            chunk = self.fetch(req).await?;
+        while let ParseState::Need { range, .. } = parser.feed(chunk)? {
+            chunk = self.fetch(range).await?;
         }
 
-        reader.into_zif()
+        parser.finish()
     }
 }
 
-impl TryFrom<HttpResponse<Vec<u8>>> for Chunk {
+impl TryFrom<HttpResponse<Vec<u8>>> for DataChunk {
     type Error = crate::Error;
 
     fn try_from(response: HttpResponse<Vec<u8>>) -> Result<Self> {

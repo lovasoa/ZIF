@@ -9,7 +9,7 @@ The core crate is Sans-IO: it parses metadata, plans byte-range requests, expose
 ## Highlights
 
 - zero dependencies in the core library
-- Sans-IO reader and writer
+- Sans-IO parser and writer
 - efficient byte-range access for huge files
 - no JPEG or PNG decoding in core
 - ergonomic tile iteration for viewports and zoom levels
@@ -23,31 +23,31 @@ The core crate is Sans-IO: it parses metadata, plans byte-range requests, expose
 Read a ZIF file and inspect its dimensions:
 
 ```rust
-use zif_tiff::{sample_zif_bytes, std::RangeReader};
+use zif_tiff::{sample_file, std::RangeReader};
 
-let zif = RangeReader::from(sample_zif_bytes()).read_zif()?;
-println!("{} x {}, {} levels", zif.width(), zif.height(), zif.level_count());
+let image = RangeReader::from(sample_file()).read_zif()?;
+println!("{} x {}, {} levels", image.width(), image.height(), image.level_count());
 
 # Ok::<(), zif_tiff::Error>(())
 ```
 
-Use the Sans-IO reader when you want explicit control over range requests, for example to fetch the encoded tiles intersecting a viewport:
+Use the Sans-IO parser when you want explicit control over range requests, for example to fetch the encoded tiles intersecting a viewport:
 
 ```rust
-use zif_tiff::{sample_zif_bytes, Chunk, ReadStatus, Reader, std::RangeReader};
+use zif_tiff::{sample_file, DataChunk, ParseState, Parser, std::RangeReader};
 
-let mut io = RangeReader::from(sample_zif_bytes());
-let mut reader = Reader::new();
-let mut chunk = Chunk::default();
+let mut io = RangeReader::from(sample_file());
+let mut parser = Parser::new();
+let mut chunk = DataChunk::default();
 
-while let ReadStatus::Need { req, .. } = reader.advance(chunk)? {
-    chunk = io.fetch(req)?;
+while let ParseState::Need { range, .. } = parser.feed(chunk)? {
+    chunk = io.fetch(range)?;
 }
 
-let zif = reader.into_zif()?;
+let image = parser.finish()?;
 
-for tile in zif.get_cropped_level_tiles(0, (0..20, 0..20))? {
-    let encoded_tile = io.fetch(tile.req())?;
+for tile in image.viewport_tiles(0, (0..20, 0..20))? {
+    let encoded_tile = io.fetch(tile.range())?;
     println!("tile {:?}, {} bytes", tile.position(), encoded_tile.bytes().len());
 }
 
@@ -110,7 +110,7 @@ A ZIF file represents one logical image as a chain of image directories. In the 
 
 Each level is split into tiles. Each tile is independently compressed and can be fetched by byte range without reading or decoding the rest of the file.
 
-The reader exposes:
+The parser exposes:
 
 - image dimensions
 - level dimensions
@@ -119,20 +119,20 @@ The reader exposes:
 - byte ranges for encoded tiles
 - optional metadata and annotation ranges
 
-The reader does not expose decoded pixels.
+The parser does not expose decoded pixels.
 
 ## Reading
 
-For normal reads, use an IO adapter to get a `Zif` object directly.
+For normal reads, use an IO adapter to get an `Image` object directly.
 
 ```rust
-use zif_tiff::{sample_zif_bytes, std::RangeReader};
+use zif_tiff::{sample_file, std::RangeReader};
 
-let zif = RangeReader::from(sample_zif_bytes()).read_zif()?;
+let image = RangeReader::from(sample_file()).read_zif()?;
 
-println!("dimensions: {:?}", zif.dimensions());
-println!("codec: {:?}", zif.codec());
-println!("color model: {:?}", zif.color_model());
+println!("dimensions: {:?}", image.dimensions());
+println!("codec: {:?}", image.codec());
+println!("color model: {:?}", image.color_model());
 
 # Ok::<(), zif_tiff::Error>(())
 ```
@@ -140,11 +140,11 @@ println!("color model: {:?}", zif.color_model());
 The same helper works with any `Read + Seek` object:
 
 ```rust
-let bytes = zif_tiff::sample_zif_bytes();
+let bytes = zif_tiff::sample_file();
 let cursor = std::io::Cursor::new(bytes);
-let zif = zif_tiff::std::read_zif(cursor)?;
+let image = zif_tiff::std::read_zif(cursor)?;
 
-assert_eq!(zif.dimensions(), (40, 40));
+assert_eq!(image.dimensions(), (40, 40));
 
 # Ok::<(), zif_tiff::Error>(())
 ```
@@ -152,13 +152,13 @@ assert_eq!(zif.dimensions(), (40, 40));
 Optional adapters provide equivalent helpers for async files and HTTP:
 
 ```rust,ignore
-let zif = zif_tiff::tokio::read_zif(file).await?;
+let image = zif_tiff::tokio::read_zif(file).await?;
 
 // HTTP: works with any tower Service
 let client = reqwest::Client::new();
 let url: http::Uri = "https://example.com/slide.zif".parse()?;
 let mut http = zif_tiff::http::HttpRangeReader::new(client, url);
-let zif = http.read_zif().await?;
+let image = http.read_zif().await?;
 ```
 
 ## Iterating Tiles
@@ -166,10 +166,10 @@ let zif = http.read_zif().await?;
 All tiles at a level:
 
 ```rust
-let zif = zif_tiff::sample::zif();
+let image = zif_tiff::sample::image();
 
-for tile in zif.get_level_tiles(0)? {
-    println!("tile {} at {:?} uses bytes {:?}", tile.index(), tile.position(), tile.bytes());
+for tile in image.level_tiles(0)? {
+    println!("tile {} at {:?} uses bytes {:?}", tile.index(), tile.position(), tile.byte_range());
 }
 
 # Ok::<(), zif_tiff::Error>(())
@@ -178,9 +178,9 @@ for tile in zif.get_level_tiles(0)? {
 Tiles intersecting a viewport:
 
 ```rust
-let zif = zif_tiff::sample::zif();
+let image = zif_tiff::sample::image();
 
-for tile in zif.get_cropped_level_tiles(0, (0..20, 0..20))? {
+for tile in image.viewport_tiles(0, (0..20, 0..20))? {
     println!("visible tile {:?}, size {:?}", tile.position(), tile.size());
 }
 
@@ -197,23 +197,23 @@ impl Tile {
     pub fn row(&self) -> u64;
     pub fn position(&self) -> (u64, u64);
     pub fn size(&self) -> (u64, u64);
-    pub fn bytes(&self) -> std::ops::Range<u64>;
-    pub fn req(&self) -> zif_tiff::Request;
+    pub fn byte_range(&self) -> std::ops::Range<u64>;
+    pub fn range(&self) -> zif_tiff::ByteRange;
     pub fn codec(&self) -> zif_tiff::Codec;
 }
 ```
 
-Use `tile.bytes()` when you only need the raw byte range. Use `tile.req()` when passing the request to an IO adapter.
+Use `tile.byte_range()` when you only need the raw byte range. Use `tile.range()` when passing the request to an IO adapter.
 
 ## IO Adapters
 
-The core API works with any backend that can fetch byte ranges and return `Chunk` values. The `std` adapter works with files and with any `Read + Seek` object:
+The core API works with any backend that can fetch byte ranges and return `DataChunk` values. The `std` adapter works with files and with any `Read + Seek` object:
 
 ```rust
-use zif_tiff::{sample_zif_bytes, std::RangeReader};
+use zif_tiff::{sample_file, std::RangeReader};
 
-let mut io = RangeReader::from(sample_zif_bytes());
-let chunk = io.fetch(zif_tiff::Request::new(0..16)?)?;
+let mut io = RangeReader::from(sample_file());
+let chunk = io.fetch(zif_tiff::ByteRange::new(0..16)?)?;
 
 assert_eq!(chunk.range(), 0..16);
 
@@ -231,20 +231,20 @@ let http_io = zif_tiff::http::HttpRangeReader::new(reqwest::Client::new(), "http
 
 ## Low-Level Sans-IO
 
-Use the Sans-IO `Reader` directly when integrating with a custom storage layer or when you need exact control over range requests and response chunks. `advance` accepts any valid chunk, not only the exact range it requested. This is useful for HTTP servers that return a larger range than requested or return the whole file. `Chunk` ties a byte range to the bytes for that range and rejects incoherent range/length pairs.
+Use the Sans-IO `Parser` directly when integrating with a custom storage layer or when you need exact control over range requests and response chunks. `feed` accepts any valid chunk, not only the exact range it requested. This is useful for HTTP servers that return a larger range than requested or return the whole file. `DataChunk` ties a byte range to the bytes for that range and rejects incoherent range/length pairs.
 
-Custom backends are straightforward because the reader only needs `Request` in and `Chunk` out.
+Custom backends are straightforward because the parser only needs `ByteRange` in and `DataChunk` out.
 
 ```rust,ignore
-while let zif_tiff::ReadStatus::Need { req, .. } = reader.advance(chunk)? {
-    let bytes = object_store.get_range(req.range()).await?;
-    chunk = zif_tiff::Chunk::new(req.range(), bytes)?;
+while let zif_tiff::ParseState::Need { range, .. } = parser.feed(chunk)? {
+    let bytes = object_store.get_range(range.range()).await?;
+    chunk = zif_tiff::DataChunk::new(range.range(), bytes)?;
 }
 ```
 
 ## Writing
 
-The writer emits write operations for the caller to apply. It does not own a file handle and does not choose an IO backend.
+The writer emits write actions for the caller to apply. It does not own a file handle and does not choose an IO backend.
 
 Create a one-level image:
 
@@ -319,8 +319,8 @@ This makes repetitive updates practical: adding or replacing a tile does not req
 Core errors are separate from IO adapter errors. Malformed files, invalid coordinates, arithmetic overflow, unsupported features, and incoherent chunks are reported as typed `zif_tiff::Error` values.
 
 ```rust
-fn handle(reader: &mut zif_tiff::Reader, chunk: zif_tiff::Chunk) -> zif_tiff::Result<()> {
-    match reader.advance(chunk) {
+fn handle(parser: &mut zif_tiff::Parser, chunk: zif_tiff::DataChunk) -> zif_tiff::Result<()> {
+    match parser.feed(chunk) {
         Ok(_) => Ok(()),
         Err(zif_tiff::Error::MalformedFile(msg)) => {
             eprintln!("rejecting malformed file: {msg}");
@@ -331,7 +331,7 @@ fn handle(reader: &mut zif_tiff::Reader, chunk: zif_tiff::Chunk) -> zif_tiff::Re
 }
 ```
 
-The reader rejects structural violations such as invalid header constants, unsorted directory entries, missing required tags, invalid tile dimensions, tile count mismatches, and overflowing byte ranges. Unknown tags are ignored unless they contradict required ZIF metadata.
+The parser rejects structural violations such as invalid header constants, unsorted directory entries, missing required tags, invalid tile dimensions, tile count mismatches, and overflowing byte ranges. Unknown tags are ignored unless they contradict required ZIF metadata.
 
 ## Format Compatibility
 
@@ -346,13 +346,13 @@ See [SPECIFICATION.md](SPECIFICATION.md) for the complete binary format.
 The crate is designed to be tested at the format boundary:
 
 - parse hand-built fixtures and malformed files
-- round-trip files through the writer and reader
+- round-trip files through the writer and parser
 - verify generated files with TIFF tooling where available
 - decode extracted JPEG and PNG tiles in tests
 - exercise fragmented, oversized, duplicate, and non-exact range responses
 - check huge-image arithmetic and edge-tile clipping
 
-External crates are appropriate in tests and optional IO adapters. They are not required by the core reader, writer, and metadata model.
+External crates are appropriate in tests and optional IO adapters. They are not required by the core parser, writer, and metadata model.
 
 ## License
 

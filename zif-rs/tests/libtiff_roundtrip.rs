@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use zif_tiff::{
-    ChainKind, Chunk, Codec, ColorModel, LevelSpec, ReadStatus, Reader, WriteBatch, Writer,
+    Codec, ColorModel, DataChunk, ImageKind, LevelConfig, ParseState, Parser, WriteBatch, Writer,
 };
 
 use mozjpeg_sys::{
@@ -24,13 +24,13 @@ fn temp_path(id: u64) -> PathBuf {
 }
 
 fn apply(file: &mut Vec<u8>, batch: WriteBatch) {
-    for op in batch.into_ops() {
-        let offset = usize::try_from(op.offset).unwrap();
-        let end = offset + op.bytes.len();
+    for action in batch.into_actions() {
+        let offset = usize::try_from(action.offset).unwrap();
+        let end = offset + action.bytes.len();
         if file.len() < end {
             file.resize(end, 0);
         }
-        file[offset..end].copy_from_slice(&op.bytes);
+        file[offset..end].copy_from_slice(&action.bytes);
     }
 }
 
@@ -144,10 +144,10 @@ unsafe fn assert_u32_tag(tif: *mut libtiff_sys::TIFF, tag: u32, expected: u32) {
 
 // ── Test ───────────────────────────────────────────────────────────────
 
-/// Full roundtrip: libtiff → ZIF Reader → ZIF Writer → libtiff.
+/// Full roundtrip: libtiff → ZIF Parser → ZIF Writer → libtiff.
 ///
 /// Creates a small 2‑level RGB JPEG pyramid (32×32 / 16×16 tiles plus a
-/// 16×16 level), feeds it through the ZIF reader, rewrites with the ZIF
+/// 16×16 level), feeds it through the ZIF parser, rewrites with the ZIF
 /// writer, then validates both encoded tile bytes and decoded RGBA pixels
 /// match through libtiff.
 #[test]
@@ -237,41 +237,42 @@ fn pyramid_roundtrips_through_libtiff() {
 
     let file_a = fs::read(&path_a).unwrap();
 
-    // ── 2. Read with ZIF Reader ────────────────────────────────────────
-    let mut reader = Reader::new();
-    let status = reader
-        .advance(Chunk::from_start(0, file_a.clone()).unwrap())
+    // ── 2. Read with ZIF Parser ────────────────────────────────────────
+    let mut parser = Parser::new();
+    let status = parser
+        .feed(DataChunk::from_start(0, file_a.clone()).unwrap())
         .unwrap();
-    let ReadStatus::Done { zif } = status else {
-        panic!("ZIF Reader did not reach Done");
+    let ParseState::Done { image } = status else {
+        panic!("ZIF Parser did not reach Done");
     };
 
-    assert_eq!(zif.level_count(), 2);
-    assert_eq!(zif.dimensions(), (32, 32));
-    assert_eq!(zif.codec(), Codec::Jpeg);
-    assert_eq!(zif.color_model(), ColorModel::Rgb);
-    assert_eq!(zif.channels(), 3);
-    assert_eq!(zif.chain_kind(), ChainKind::Pyramid);
+    assert_eq!(image.level_count(), 2);
+    assert_eq!(image.dimensions(), (32, 32));
+    assert_eq!(image.codec(), Codec::Jpeg);
+    assert_eq!(image.color_model(), ColorModel::Rgb);
+    assert_eq!(image.channels(), 3);
+    assert_eq!(image.kind(), ImageKind::Pyramid);
 
-    let l0 = zif.level(0).unwrap();
+    let l0 = image.level(0).unwrap();
     assert_eq!(l0.dimensions(), (32, 32));
     assert_eq!(l0.tile_size(), (16, 16));
     assert_eq!(l0.tile_grid(), (2, 2));
     assert_eq!(l0.tile_count(), 4);
 
-    let l1 = zif.level(1).unwrap();
+    let l1 = image.level(1).unwrap();
     assert_eq!(l1.dimensions(), (16, 16));
     assert_eq!(l1.tile_size(), (16, 16));
     assert_eq!(l1.tile_grid(), (1, 1));
     assert_eq!(l1.tile_count(), 1);
 
-    // Extract encoded tile bytes as the ZIF reader sees them.
-    let encoded_tiles: Vec<Vec<u8>> = (0..zif.level_count())
+    // Extract encoded tile bytes as the ZIF parser sees them.
+    let encoded_tiles: Vec<Vec<u8>> = (0..image.level_count())
         .flat_map(|li| {
-            zif.get_level_tiles(li)
+            image
+                .level_tiles(li)
                 .unwrap()
                 .map(|t| {
-                    let range = t.bytes();
+                    let range = t.byte_range();
                     file_a
                         [usize::try_from(range.start).unwrap()..usize::try_from(range.end).unwrap()]
                         .to_vec()
@@ -292,8 +293,8 @@ fn pyramid_roundtrips_through_libtiff() {
         .channels(3)
         .unwrap();
     builder = builder
-        .level(LevelSpec::new((32, 32), (16, 16)).unwrap())
-        .level(LevelSpec::new((16, 16), (16, 16)).unwrap());
+        .level(LevelConfig::new((32, 32), (16, 16)).unwrap())
+        .level(LevelConfig::new((16, 16), (16, 16)).unwrap());
     let mut writer = builder.build().unwrap();
 
     let mut rewritten = Vec::new();

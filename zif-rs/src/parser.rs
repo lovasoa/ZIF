@@ -1,66 +1,75 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use crate::format::{
+use crate::chunk::{ByteRange, DataChunk};
+use crate::codec::{Codec, ColorModel};
+use crate::metadata::{Image, Level};
+use crate::tiff::{
     read_u16, read_u32, read_u64, tile_count, ENTRY_LEN, TAG_BITS, TAG_CHANNELS, TAG_CODEC,
     TAG_COLOR, TAG_HEIGHT, TAG_INTERLEAVE, TAG_TILE_COUNTS, TAG_TILE_HEIGHT, TAG_TILE_OFFSETS,
     TAG_TILE_WIDTH, TAG_WIDTH, TAG_YCBCR_SUBSAMPLING, TYPE_U16, TYPE_U32, TYPE_U64,
 };
-use crate::model::{Chunk, Codec, ColorModel, Level, Request, Zif, ZifView};
 use crate::{Error, Result};
 
+/// Incremental parsing state returned by [`Parser::feed`].
+///
+/// ```
+/// let mut parser = zif_tiff::Parser::new();
+/// let state = parser.feed(zif_tiff::DataChunk::default())?;
+/// assert!(matches!(state, zif_tiff::ParseState::Need { .. }));
+/// # Ok::<(), zif_tiff::Error>(())
+/// ```
 #[derive(Debug, Clone)]
-pub enum ReadStatus<'a> {
+pub enum ParseState<'a> {
     Need {
-        req: Request,
-        zif: Option<ZifView<'a>>,
+        range: ByteRange,
+        partial: Option<&'a Image>,
     },
     Done {
-        zif: ZifView<'a>,
+        image: &'a Image,
     },
 }
 
+/// Sans-IO ZIF metadata parser.
+///
+/// Feed byte chunks with [`feed`](Self::feed) and advance the parser
+/// incrementally. When the parser needs more data it returns
+/// [`ParseState::Need`] with a [`ByteRange`] to fetch. Once the full
+/// metadata has been parsed the parser returns [`ParseState::Done`].
+///
+/// ```
+/// let file = zif_tiff::sample::file();
+/// let mut parser = zif_tiff::Parser::new();
+/// let state = parser.feed(zif_tiff::DataChunk::from_start(0, file)?)?;
+/// assert!(matches!(state, zif_tiff::ParseState::Done { .. }));
+/// # Ok::<(), zif_tiff::Error>(())
+/// ```
 #[derive(Debug, Clone)]
-pub struct Reader {
+pub struct Parser {
     cache: Vec<Cached>,
-    zif: Option<Zif>,
+    image: Option<Image>,
 }
 
-impl Default for Reader {
+impl Default for Parser {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Reader {
-    /// Creates a new Sans-IO reader.
-    ///
-    /// ```
-    /// let mut reader = zif_tiff::Reader::new();
-    /// let status = reader.advance(zif_tiff::Chunk::default())?;
-    /// assert!(matches!(status, zif_tiff::ReadStatus::Need { .. }));
-    /// # Ok::<(), zif_tiff::Error>(())
-    /// ```
+impl Parser {
+    /// Creates a new Sans-IO parser.
     pub fn new() -> Self {
         Self {
             cache: Vec::new(),
-            zif: None,
+            image: None,
         }
     }
 
-    /// Advances the reader with a coherent chunk of bytes.
+    /// Feeds a coherent chunk of bytes to the parser.
     ///
-    /// The chunk may be empty, exactly the requested range, a superset of the
-    /// requested range, or the whole file.
-    ///
-    /// ```
-    /// let file = zif_tiff::sample::file();
-    /// let mut reader = zif_tiff::Reader::new();
-    /// let status = reader.advance(zif_tiff::Chunk::from_start(0, file)?)?;
-    /// assert!(matches!(status, zif_tiff::ReadStatus::Done { .. }));
-    /// # Ok::<(), zif_tiff::Error>(())
-    /// ```
-    pub fn advance<B>(&mut self, chunk: Chunk<B>) -> Result<ReadStatus<'_>>
+    /// The chunk may be empty, exactly the requested range, a superset of
+    /// the requested range, or the whole file.
+    pub fn feed<B>(&mut self, chunk: DataChunk<B>) -> Result<ParseState<'_>>
     where
         B: AsRef<[u8]> + Into<Vec<u8>>,
     {
@@ -68,51 +77,41 @@ impl Reader {
         if !bytes.as_ref().is_empty() {
             self.insert_chunk_vec(range, bytes.into())?;
         }
-        self.advance_cached()
+        self.advance()
     }
 
-    fn advance_cached(&mut self) -> Result<ReadStatus<'_>> {
+    fn advance(&mut self) -> Result<ParseState<'_>> {
         match self.try_parse()? {
-            Parse::Done(zif) => {
-                self.zif = Some(zif);
-                Ok(ReadStatus::Done {
-                    zif: ZifView::new(self.zif.as_ref().expect("done parser produced zif")),
+            Parse::Done(image) => {
+                self.image = Some(image);
+                Ok(ParseState::Done {
+                    image: self.image.as_ref().expect("done parser produced image"),
                 })
             }
             Parse::Need { range, partial } => {
-                if let Some(zif) = partial {
-                    self.zif = Some(zif);
+                if let Some(image) = partial {
+                    self.image = Some(image);
                 }
-                Ok(ReadStatus::Need {
-                    req: Request::new(range)?,
-                    zif: self.zif.as_ref().map(ZifView::new),
+                Ok(ParseState::Need {
+                    range: ByteRange::new(range)?,
+                    partial: self.image.as_ref(),
                 })
             }
         }
     }
 
-    /// Returns the latest parsed ZIF metadata.
+    /// Returns the latest parsed image metadata.
     ///
-    /// If the previous `advance` returned `Need`, this may be a partial prefix
-    /// of the directory chain. After `advance` returns `Done`, this is the
+    /// If the previous `feed` returned `Need`, this may be a partial prefix
+    /// of the directory chain. After `feed` returns `Done`, this is the
     /// complete file metadata.
-    ///
-    /// ```
-    /// let file = zif_tiff::sample::file();
-    /// let mut reader = zif_tiff::Reader::new();
-    /// reader.advance(zif_tiff::Chunk::from_start(0, file)?)?;
-    /// assert_eq!(reader.zif()?.dimensions(), (40, 40));
-    /// # Ok::<(), zif_tiff::Error>(())
-    /// ```
-    pub fn zif(&self) -> Result<&Zif> {
-        self.zif.as_ref().ok_or(Error::Incomplete)
+    pub fn image(&self) -> Result<&Image> {
+        self.image.as_ref().ok_or(Error::Incomplete)
     }
 
-    /// Returns the parsed ZIF metadata, consuming the reader without cloning.
-    ///
-    /// Call this after `advance` has returned `Done`.
-    pub fn into_zif(self) -> Result<Zif> {
-        self.zif.ok_or(Error::Incomplete)
+    /// Returns the parsed image metadata, consuming the parser.
+    pub fn finish(self) -> Result<Image> {
+        self.image.ok_or(Error::Incomplete)
     }
 
     fn insert_chunk_vec(&mut self, range: Range<u64>, bytes: Vec<u8>) -> Result<()> {
@@ -237,7 +236,7 @@ impl Reader {
         if levels.is_empty() {
             return Err(Error::MalformedFile("no levels"));
         }
-        Ok(Parse::Done(Zif::new(levels)))
+        Ok(Parse::Done(Image::new(levels)))
     }
 
     fn parse_level(&self, index: usize, entries: &[Entry]) -> Result<LevelParse> {
@@ -287,8 +286,6 @@ impl Reader {
             ArrayParse::Done(v) => v,
             ArrayParse::Need(r) => return Ok(LevelParse::Need(r)),
         };
-        // Compatibility path for non-conforming files noted in specification section 6.6:
-        // preserve the recorded subsampling so a tile-for-tile rewrite can remain readable.
         let ycbcr_subsampling = if codec == Codec::Jpeg && color_model == ColorModel::YCbCr {
             match find_optional(entries, TAG_YCBCR_SUBSAMPLING) {
                 Some(entry) => {
@@ -536,21 +533,23 @@ impl Cached {
 enum Parse {
     Need {
         range: Range<u64>,
-        partial: Option<Zif>,
+        partial: Option<Image>,
     },
-    Done(Zif),
+    Done(Image),
 }
 
 fn need(range: Range<u64>, levels: Vec<Level>) -> Parse {
     Parse::Need {
         range,
-        partial: (!levels.is_empty()).then(|| Zif::new(levels)),
+        partial: (!levels.is_empty()).then(|| Image::new(levels)),
     }
 }
+
 enum LevelParse {
     Need(Range<u64>),
     Done(Level),
 }
+
 enum ArrayParse<T> {
     Need(Range<u64>),
     Done(Vec<T>),

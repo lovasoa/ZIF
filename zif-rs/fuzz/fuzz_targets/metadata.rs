@@ -2,7 +2,7 @@
 
 use libfuzzer_sys::arbitrary::{Arbitrary, Unstructured};
 use libfuzzer_sys::fuzz_target;
-use zif_tiff::{Chunk, Error, ReadStatus, Reader};
+use zif_tiff::{DataChunk, Error, ParseState, Parser};
 
 const ENTRY_LEN: usize = 20;
 
@@ -523,7 +523,7 @@ fn push_u64(out: &mut Vec<u8>, value: u64) {
 }
 
 fn fuzz_incremental_reads(file: &[u8], reads: Vec<ReadPlan>) {
-    let mut reader = Reader::new();
+    let mut parser = Parser::new();
     let mut request = None;
     for read in reads.into_iter().take(64) {
         let chunk = match read {
@@ -551,7 +551,7 @@ fn fuzz_incremental_reads(file: &[u8], reads: Vec<ReadPlan>) {
                     None
                 }
             }),
-            ReadPlan::Empty => Some(Chunk::default()),
+            ReadPlan::Empty => Some(DataChunk::default()),
             ReadPlan::OverlapConflict { start, len } => {
                 if file.is_empty() {
                     None
@@ -564,19 +564,19 @@ fn fuzz_incremental_reads(file: &[u8], reads: Vec<ReadPlan>) {
                     if let Some(first) = bytes.first_mut() {
                         *first ^= 0xff;
                     }
-                    Chunk::from_start(start as u64, bytes).ok()
+                    DataChunk::from_start(start as u64, bytes).ok()
                 }
             }
         };
         if let Some(chunk) = chunk {
-            match reader.advance(chunk) {
-                Ok(ReadStatus::Need { req, .. }) => {
-                    let range = req.range();
+            match parser.feed(chunk) {
+                Ok(ParseState::Need { range, .. }) => {
+                    let range = range.range();
                     assert!(range.start <= range.end);
                     request = Some(range);
                 }
-                Ok(ReadStatus::Done { .. }) => {
-                    check_done_reader(&reader, file);
+                Ok(ParseState::Done { .. }) => {
+                    check_done_parser(&parser, file);
                     request = None;
                 }
                 Err(Error::Incomplete) => {
@@ -588,27 +588,27 @@ fn fuzz_incremental_reads(file: &[u8], reads: Vec<ReadPlan>) {
     }
 }
 
-fn chunk(file: &[u8], start: usize, end: usize) -> Option<Chunk<Vec<u8>>> {
-    Chunk::from_start(start as u64, file[start..end].to_vec()).ok()
+fn chunk(file: &[u8], start: usize, end: usize) -> Option<DataChunk<Vec<u8>>> {
+    DataChunk::from_start(start as u64, file[start..end].to_vec()).ok()
 }
 
 fn parse_full_and_check(file: &[u8]) {
-    let mut reader = Reader::new();
-    match reader.advance(Chunk::from_start(0, file.to_vec()).expect("full-file chunk is coherent"))
+    let mut parser = Parser::new();
+    match parser.feed(DataChunk::from_start(0, file.to_vec()).expect("full-file chunk is coherent"))
     {
-        Ok(ReadStatus::Done { .. }) => check_done_reader(&reader, file),
-        Ok(ReadStatus::Need { req, .. }) => assert!(req.start() <= req.end()),
+        Ok(ParseState::Done { .. }) => check_done_parser(&parser, file),
+        Ok(ParseState::Need { range, .. }) => assert!(range.start() <= range.end()),
         Err(Error::Incomplete) => panic!("advance should return NeedMore instead of Incomplete"),
         Err(_) => {}
     }
 }
 
-fn check_done_reader(reader: &Reader, file: &[u8]) {
-    let zif = reader.zif().expect("done reader has zif");
-    assert!(zif.level_count() > 0);
-    assert_eq!(zif.dimensions(), (zif.width(), zif.height()));
-    for level_index in 0..zif.level_count() {
-        let level = zif.level(level_index).expect("level index exists");
+fn check_done_parser(parser: &Parser, file: &[u8]) {
+    let image = parser.image().expect("done parser has image");
+    assert!(image.level_count() > 0);
+    assert_eq!(image.dimensions(), (image.width(), image.height()));
+    for level_index in 0..image.level_count() {
+        let level = image.level(level_index).expect("level index exists");
         assert!(level.width() > 0);
         assert!(level.height() > 0);
         assert!(level.tile_size().0 > 0);
@@ -617,8 +617,8 @@ fn check_done_reader(reader: &Reader, file: &[u8]) {
             level.tile_count(),
             level.tile_grid().0 * level.tile_grid().1
         );
-        let tiles: Vec<_> = zif
-            .get_level_tiles(level_index)
+        let tiles: Vec<_> = image
+            .level_tiles(level_index)
             .expect("level exists")
             .collect();
         assert_eq!(tiles.len() as u64, level.tile_count());
@@ -633,8 +633,8 @@ fn check_done_reader(reader: &Reader, file: &[u8]) {
             assert!(tile.y() + tile.height() <= level.height());
             assert_eq!(tile.position(), (tile.x(), tile.y()));
             assert_eq!(tile.size(), (tile.width(), tile.height()));
-            assert_eq!(tile.req().range(), tile.bytes());
-            assert!(usize::try_from(tile.bytes().end).unwrap_or(usize::MAX) <= file.len());
+            assert_eq!(tile.range().range(), tile.byte_range());
+            assert!(usize::try_from(tile.byte_range().end).unwrap_or(usize::MAX) <= file.len());
         }
     }
 }

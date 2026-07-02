@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
-use crate::{Chunk, Error, ReadStatus, Reader, Request, Result, WriteBatch, Zif};
+use crate::{ByteRange, DataChunk, Error, Image, ParseState, Parser, Result, WriteBatch};
 
 pub struct RangeReader<R = File> {
     reader: R,
@@ -35,30 +35,30 @@ impl From<Vec<u8>> for RangeReader<Cursor<Vec<u8>>> {
 }
 
 impl<R: Read + Seek> RangeReader<R> {
-    pub fn read_zif(&mut self) -> Result<Zif> {
-        let mut reader = Reader::new();
-        let mut chunk = Chunk::default();
+    pub fn read_zif(&mut self) -> Result<Image> {
+        let mut parser = Parser::new();
+        let mut chunk = DataChunk::default();
 
-        while let ReadStatus::Need { req, .. } = reader.advance(chunk)? {
-            chunk = self.fetch(req)?;
+        while let ParseState::Need { range, .. } = parser.feed(chunk)? {
+            chunk = self.fetch(range)?;
         }
 
-        reader.into_zif()
+        parser.finish()
     }
 
-    pub fn fetch(&mut self, req: Request) -> Result<Chunk> {
-        self.reader.seek(SeekFrom::Start(req.start()))?;
+    pub fn fetch(&mut self, range: ByteRange) -> Result<DataChunk> {
+        self.reader.seek(SeekFrom::Start(range.start()))?;
         let mut bytes = vec![
             0;
-            usize::try_from(req.len())
+            usize::try_from(range.len())
                 .map_err(|_| Error::InvalidInput("range too large"))?
         ];
         self.reader.read_exact(&mut bytes)?;
-        Chunk::new(req.range(), bytes)
+        DataChunk::new(range.range(), bytes)
     }
 }
 
-pub fn read_zif(reader: impl Read + Seek) -> Result<Zif> {
+pub fn read_zif(reader: impl Read + Seek) -> Result<Image> {
     RangeReader::wrap(reader).read_zif()
 }
 
@@ -108,9 +108,9 @@ impl From<Vec<u8>> for RangeWriter<Cursor<Vec<u8>>> {
 
 impl<W: Write + Seek> RangeWriter<W> {
     pub fn apply(&mut self, batch: WriteBatch) -> Result<()> {
-        for op in batch.into_ops() {
-            self.writer.seek(SeekFrom::Start(op.offset))?;
-            self.writer.write_all(&op.bytes)?;
+        for action in batch.into_actions() {
+            self.writer.seek(SeekFrom::Start(action.offset))?;
+            self.writer.write_all(&action.bytes)?;
         }
         Ok(self.writer.flush()?)
     }

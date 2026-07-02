@@ -14,7 +14,7 @@ use std::fs;
 use std::os::raw::{c_int, c_ulong};
 use std::sync::atomic::{AtomicU64, Ordering};
 use zif_tiff::{
-    ChainKind, Chunk, Codec, ColorModel, LevelSpec, ReadStatus, Reader, WriteBatch, Writer,
+    ImageKind, DataChunk, Codec, ColorModel, LevelConfig, ParseState, Parser, WriteBatch, Writer,
 };
 
 const ENTRY_LEN: usize = 20;
@@ -161,7 +161,7 @@ fuzz_target!(|data: &[u8]| {
     };
 
     let mut file = Vec::new();
-    let mut reader = Reader::new();
+    let mut parser = Parser::new();
     let mut last_request = None;
 
     for operation in input.operations.into_iter().take(96) {
@@ -213,12 +213,12 @@ fuzz_target!(|data: &[u8]| {
             }
             Operation::FeedWholeFile => {
                 last_request =
-                    advance_and_check(&mut reader, chunk_from_file(&file, 0, file.len()), &file);
+                    feed_and_check(&mut parser, chunk_from_file(&file, 0, file.len()), &file);
             }
             Operation::FeedPrefix { len } => {
                 let end = usize::from(len).min(file.len());
                 last_request =
-                    advance_and_check(&mut reader, chunk_from_file(&file, 0, end), &file);
+                    feed_and_check(&mut parser, chunk_from_file(&file, 0, end), &file);
             }
             Operation::FeedRange { start, len } => {
                 if !file.is_empty() {
@@ -227,7 +227,7 @@ fuzz_target!(|data: &[u8]| {
                         .saturating_add(usize::from(len) % 1024)
                         .min(file.len());
                     last_request =
-                        advance_and_check(&mut reader, chunk_from_file(&file, start, end), &file);
+                        feed_and_check(&mut parser, chunk_from_file(&file, start, end), &file);
                 }
             }
             Operation::FeedRequested => {
@@ -239,8 +239,8 @@ fuzz_target!(|data: &[u8]| {
                         .unwrap_or(usize::MAX)
                         .min(file.len());
                     if start <= end {
-                        last_request = advance_and_check(
-                            &mut reader,
+                        last_request = feed_and_check(
+                            &mut parser,
                             chunk_from_file(&file, start, end),
                             &file,
                         );
@@ -248,7 +248,7 @@ fuzz_target!(|data: &[u8]| {
                 }
             }
             Operation::FeedDefault => {
-                last_request = advance_and_check(&mut reader, Some(Chunk::default()), &file);
+                last_request = feed_and_check(&mut parser, Some(DataChunk::default()), &file);
             }
         }
     }
@@ -309,7 +309,7 @@ fn check_writer_case(
         .channels(channels)
         .unwrap();
     for (dimensions, tile_size) in specs {
-        builder = builder.level(LevelSpec::new(dimensions, tile_size).unwrap());
+        builder = builder.level(LevelConfig::new(dimensions, tile_size).unwrap());
     }
     let mut writer = builder.build().expect("deterministic writer case is valid");
     let mut file = Vec::new();
@@ -332,17 +332,17 @@ fn check_writer_case(
 }
 
 fn fuzz_raw_reader(chunks: &[RawChunk]) {
-    let mut reader = Reader::new();
+    let mut parser = Parser::new();
     for raw in chunks.iter().take(16) {
         let mut bytes = raw.bytes.clone();
         bytes.truncate(128);
-        if let Ok(chunk) = Chunk::from_start(u64::from(raw.start), bytes) {
-            let _ = reader.advance(chunk);
+        if let Ok(chunk) = DataChunk::from_start(u64::from(raw.start), bytes) {
+            let _ = parser.feed(chunk);
         }
     }
 }
 
-fn make_levels(shape: Shape) -> Option<(Vec<LevelSpec>, Vec<ExpectedLevel>)> {
+fn make_levels(shape: Shape) -> Option<(Vec<LevelConfig>, Vec<ExpectedLevel>)> {
     let mut dims = Vec::new();
     match shape {
         Shape::Single {
@@ -400,7 +400,7 @@ fn make_levels(shape: Shape) -> Option<(Vec<LevelSpec>, Vec<ExpectedLevel>)> {
     let mut specs = Vec::new();
     let mut expected = Vec::new();
     for (dimensions, tile_size) in dims {
-        let spec = LevelSpec::new(
+        let spec = LevelConfig::new(
             dimensions,
             (
                 u32::try_from(tile_size.0).ok()?,
@@ -520,25 +520,25 @@ fn resize_expected(level: &mut ExpectedLevel, dimensions: (u64, u64), tile_size:
         .retain(|&(col, row), _| col < level.tiles_across && row < level.tiles_down);
 }
 
-fn chunk_from_file(file: &[u8], start: usize, end: usize) -> Option<Chunk<Vec<u8>>> {
-    Chunk::from_start(start as u64, file[start..end].to_vec()).ok()
+fn chunk_from_file(file: &[u8], start: usize, end: usize) -> Option<DataChunk<Vec<u8>>> {
+    DataChunk::from_start(start as u64, file[start..end].to_vec()).ok()
 }
 
-fn advance_and_check(
-    reader: &mut Reader,
-    chunk: Option<Chunk<Vec<u8>>>,
+fn feed_and_check(
+    parser: &mut Parser,
+    chunk: Option<DataChunk<Vec<u8>>>,
     file: &[u8],
 ) -> Option<std::ops::Range<u64>> {
     let chunk = chunk?;
-    match reader.advance(chunk) {
-        Ok(ReadStatus::Need { req, .. }) => {
-            let range = req.range();
+    match parser.feed(chunk) {
+        Ok(ParseState::Need { range, .. }) => {
+            let range = range.range();
             assert!(range.start <= range.end);
             Some(range)
         }
-        Ok(ReadStatus::Done { .. }) => {
-            let zif = reader.zif().expect("done reader has zif");
-            assert_parsed_zif_invariants(file, zif);
+        Ok(ParseState::Done { .. }) => {
+            let image = parser.image().expect("done parser has image");
+            assert_parsed_image_invariants(file, image);
             None
         }
         Err(_) => None,
@@ -551,22 +551,22 @@ fn assert_full_parse_invariants(
     color_model: ColorModel,
     channels: u16,
 ) {
-    let mut reader = Reader::new();
-    let status = reader
-        .advance(Chunk::from_start(0, file.to_vec()).expect("full-file chunk is coherent"))
+    let mut parser = Parser::new();
+    let status = parser
+        .feed(DataChunk::from_start(0, file.to_vec()).expect("full-file chunk is coherent"))
         .expect("writer output must parse");
-    assert!(matches!(status, ReadStatus::Done { .. }));
-    let zif = reader.zif().expect("done reader has zif");
-    assert_parsed_zif_invariants(file, zif);
+    assert!(matches!(status, ParseState::Done { .. }));
+    let image = parser.image().expect("done parser has image");
+    assert_parsed_image_invariants(file, image);
     assert_writer_directory_tags(file, expected);
-    assert_eq!(zif.level_count(), expected.len());
-    assert_eq!(zif.dimensions(), expected[0].dimensions);
-    assert_eq!(zif.color_model(), color_model);
-    assert_eq!(zif.channels(), channels);
-    assert_eq!(zif.chain_kind(), expected_chain_kind(expected));
+    assert_eq!(image.level_count(), expected.len());
+    assert_eq!(image.dimensions(), expected[0].dimensions);
+    assert_eq!(image.color_model(), color_model);
+    assert_eq!(image.channels(), channels);
+    assert_eq!(image.kind(), expected_kind(expected));
 
     for (level_index, exp) in expected.iter().enumerate() {
-        let level = zif.level(level_index).expect("expected level exists");
+        let level = image.level(level_index).expect("expected level exists");
         assert_eq!(level.dimensions(), exp.dimensions);
         assert_eq!(level.tile_size(), exp.tile_size);
         assert_eq!(level.tile_grid(), (exp.tiles_across, exp.tiles_down));
@@ -574,7 +574,7 @@ fn assert_full_parse_invariants(
         assert_eq!(level.color_model(), color_model);
         assert_eq!(level.channels(), channels);
         assert_eq!(
-            zif.get_level_tiles(level_index).unwrap().count() as u64,
+            image.level_tiles(level_index).unwrap().count() as u64,
             level.tile_count()
         );
 
@@ -582,8 +582,8 @@ fn assert_full_parse_invariants(
             for col in 0..exp.tiles_across {
                 let tile = level.tile(col, row).expect("valid tile coordinate");
                 assert_tile_geometry(&tile, exp);
-                assert_eq!(tile.req().range(), tile.bytes());
-                let bytes = tile.bytes();
+                assert_eq!(tile.range().range(), tile.byte_range());
+                let bytes = tile.byte_range();
                 assert!(bytes.start <= bytes.end);
                 let start = usize::try_from(bytes.start).expect("tile start fits usize");
                 let end = usize::try_from(bytes.end).expect("tile end fits usize");
@@ -597,10 +597,10 @@ fn assert_full_parse_invariants(
             }
         }
 
-        assert_crop_count(zif, level_index, (0..exp.dimensions.0, 0..exp.dimensions.1));
-        assert_crop_count(zif, level_index, (0..0, 0..exp.dimensions.1));
+        assert_crop_count(image, level_index, (0..exp.dimensions.0, 0..exp.dimensions.1));
+        assert_crop_count(image, level_index, (0..0, 0..exp.dimensions.1));
         assert_crop_count(
-            zif,
+            image,
             level_index,
             (
                 exp.tile_size.0.saturating_sub(1)..exp.dimensions.0.saturating_add(exp.tile_size.0),
@@ -715,7 +715,7 @@ fn assert_libtiff_reads_writer_output(
         return;
     }
     let path = std::env::temp_dir().join(format!(
-        "zif-fuzz-libtiff-{}.tif",
+        "image-fuzz-libtiff-{}.tif",
         NEXT_LIBTIFF_FILE.fetch_add(1, Ordering::Relaxed)
     ));
     if fs::write(&path, file).is_err() {
@@ -784,12 +784,12 @@ unsafe fn assert_libtiff_u32(tiff: *mut libtiff_sys::TIFF, tag: u32, expected: u
     assert_eq!(value, expected);
 }
 
-fn assert_parsed_zif_invariants(file: &[u8], zif: &zif_tiff::Zif) {
-    assert!(zif.level_count() > 0);
-    assert_eq!(zif.width(), zif.dimensions().0);
-    assert_eq!(zif.height(), zif.dimensions().1);
-    for level_index in 0..zif.level_count() {
-        let level = zif.level(level_index).expect("level index in range");
+fn assert_parsed_image_invariants(file: &[u8], image: &zif_tiff::Image) {
+    assert!(image.level_count() > 0);
+    assert_eq!(image.width(), image.dimensions().0);
+    assert_eq!(image.height(), image.dimensions().1);
+    for level_index in 0..image.level_count() {
+        let level = image.level(level_index).expect("level index in range");
         assert!(level.width() > 0);
         assert!(level.height() > 0);
         assert_eq!(level.dimensions(), (level.width(), level.height()));
@@ -798,7 +798,7 @@ fn assert_parsed_zif_invariants(file: &[u8], zif: &zif_tiff::Zif) {
             level.tile_grid().0 * level.tile_grid().1
         );
         let mut seen = 0;
-        for tile in zif.get_level_tiles(level_index).expect("level exists") {
+        for tile in image.level_tiles(level_index).expect("level exists") {
             assert_eq!(tile.level(), level_index);
             assert_eq!(tile.index(), tile.row() * level.tile_grid().0 + tile.col());
             assert_eq!(tile.position(), (tile.x(), tile.y()));
@@ -809,8 +809,8 @@ fn assert_parsed_zif_invariants(file: &[u8], zif: &zif_tiff::Zif) {
             assert!(tile.y() < level.height());
             assert!(tile.x() + tile.width() <= level.width());
             assert!(tile.y() + tile.height() <= level.height());
-            assert_eq!(tile.req().range(), tile.bytes());
-            let bytes = tile.bytes();
+            assert_eq!(tile.range().range(), tile.byte_range());
+            let bytes = tile.byte_range();
             assert!(bytes.start <= bytes.end);
             assert!(usize::try_from(bytes.end).unwrap_or(usize::MAX) <= file.len());
             assert_eq!(tile.codec(), level.codec());
@@ -836,14 +836,14 @@ fn assert_tile_geometry(tile: &zif_tiff::Tile<'_>, exp: &ExpectedLevel) {
 }
 
 fn assert_crop_count(
-    zif: &zif_tiff::Zif,
+    image: &zif_tiff::Image,
     level_index: usize,
     region: (std::ops::Range<u64>, std::ops::Range<u64>),
 ) {
-    let level = zif.level(level_index).expect("level index in range");
+    let level = image.level(level_index).expect("level index in range");
     let expected = expected_crop_count(level, &region);
-    let actual = zif
-        .get_cropped_level_tiles(level_index, region)
+    let actual = image
+        .viewport_tiles(level_index, region)
         .expect("well-formed crop region")
         .count() as u64;
     assert_eq!(actual, expected);
@@ -868,25 +868,25 @@ fn expected_crop_count(
     (end_col - start_col) * (end_row - start_row)
 }
 
-fn expected_chain_kind(levels: &[ExpectedLevel]) -> ChainKind {
+fn expected_kind(levels: &[ExpectedLevel]) -> ImageKind {
     if levels.len() <= 1 {
-        return ChainKind::Pyramid;
+        return ImageKind::Pyramid;
     }
     if levels.iter().all(|l| l.dimensions == levels[0].dimensions) {
-        return ChainKind::TimeSeries;
+        return ImageKind::TimeSeries;
     }
     if levels.windows(2).all(|w| {
         w[1].dimensions.0 == w[0].dimensions.0.div_ceil(2)
             && w[1].dimensions.1 == w[0].dimensions.1.div_ceil(2)
     }) {
-        ChainKind::Pyramid
+        ImageKind::Pyramid
     } else {
-        ChainKind::Collection
+        ImageKind::Collection
     }
 }
 
 fn apply(file: &mut Vec<u8>, batch: WriteBatch) {
-    for op in batch.into_ops() {
+    for op in batch.into_actions() {
         let offset = usize::try_from(op.offset).expect("fuzz offsets fit usize");
         let end = offset + op.bytes.len();
         if file.len() < end {

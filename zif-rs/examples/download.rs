@@ -20,13 +20,13 @@ async fn run() -> io::Result<()> {
         .map_err(|e: http::uri::InvalidUri| invalid_data(e.to_string()))?;
     let mut http: HttpReader = HttpRangeReader::new(client, uri);
 
-    let zif = http.read_zif().await.map_err(io_error)?;
-    let mut writer = writer_for(&zif)?;
+    let image = http.read_zif().await.map_err(io_error)?;
+    let mut writer = writer_for(&image)?;
     let mut file = FileRangeWriter::create(output).await.map_err(io_error)?;
 
-    for level_index in 0..zif.level_count() {
-        for tile in zif.get_level_tiles(level_index).map_err(io_error)? {
-            let bytes = fetch_tile(&mut http, tile.req()).await?;
+    for level_index in 0..image.level_count() {
+        for tile in image.level_tiles(level_index).map_err(io_error)? {
+            let bytes = fetch_tile(&mut http, tile.range()).await?;
             let batch = writer
                 .put_tile_at_level(level_index, (tile.col(), tile.row()), bytes)
                 .map_err(io_error)?;
@@ -58,27 +58,24 @@ fn usage() -> io::Error {
     )
 }
 
-fn writer_for(zif: &zif_tiff::Zif) -> io::Result<zif_tiff::Writer> {
+fn writer_for(image: &zif_tiff::Image) -> io::Result<zif_tiff::Writer> {
     let mut builder = zif_tiff::Writer::new()
-        .codec(zif.codec())
-        .color_model(zif.color_model())
-        .channels(zif.channels())
+        .codec(image.codec())
+        .color_model(image.color_model())
+        .channels(image.channels())
         .map_err(io_error)?;
 
-    if let Some(subsampling) = zif.level(0).map_err(io_error)?.ycbcr_subsampling() {
+    if let Some(subsampling) = image.level(0).map_err(io_error)?.ycbcr_subsampling() {
         builder = if subsampling == (1, 1) || subsampling == (2, 2) {
             builder.ycbcr_subsampling(subsampling).map_err(io_error)?
         } else {
-            // Compatibility path for non-conforming files noted in specification section 6.6.
-            // The example rewrites existing tile streams, so preserving the original tag keeps
-            // libtiff/ImageMagick in sync with the JPEG sampling actually present in those tiles.
             builder
                 .preserve_nonstandard_ycbcr_subsampling(subsampling)
                 .map_err(io_error)?
         };
     }
 
-    for level in zif.levels() {
+    for level in image.levels() {
         let (tile_width, tile_height) = level.tile_size();
         let tile_size = (
             u32::try_from(tile_width)
@@ -86,20 +83,24 @@ fn writer_for(zif: &zif_tiff::Zif) -> io::Result<zif_tiff::Writer> {
             u32::try_from(tile_height)
                 .map_err(|_| invalid_data("tile height does not fit in u32"))?,
         );
-        let spec = zif_tiff::LevelSpec::new(level.dimensions(), tile_size).map_err(io_error)?;
+        let spec =
+            zif_tiff::LevelConfig::new(level.dimensions(), tile_size).map_err(io_error)?;
         builder = builder.level(spec);
     }
 
     builder.build().map_err(io_error)
 }
 
-async fn fetch_tile(http: &mut HttpReader, req: zif_tiff::Request) -> io::Result<Vec<u8>> {
-    if req.is_empty() {
+async fn fetch_tile(
+    http: &mut HttpReader,
+    range: zif_tiff::ByteRange,
+) -> io::Result<Vec<u8>> {
+    if range.is_empty() {
         return Ok(Vec::new());
     }
 
-    let requested = req.range();
-    let chunk = http.fetch(req).await.map_err(io_error)?;
+    let requested = range.range();
+    let chunk = http.fetch(range).await.map_err(io_error)?;
     if chunk.start() > requested.start || chunk.end() < requested.end {
         return Err(invalid_data("http response did not cover requested tile"));
     }

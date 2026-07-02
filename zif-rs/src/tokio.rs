@@ -5,7 +5,7 @@ use tokio::io::{
     AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt, SeekFrom,
 };
 
-use crate::{Chunk, Error, ReadStatus, Reader, Request, Result, WriteBatch, Zif};
+use crate::{ByteRange, DataChunk, Error, Image, ParseState, Parser, Result, WriteBatch};
 
 pub struct AsyncRangeReader<R = File> {
     reader: R,
@@ -26,30 +26,30 @@ impl<R: AsyncRead + AsyncSeek + Unpin> AsyncRangeReader<R> {
         Self { reader }
     }
 
-    pub async fn fetch(&mut self, req: Request) -> Result<Chunk> {
-        self.reader.seek(SeekFrom::Start(req.start())).await?;
+    pub async fn fetch(&mut self, range: ByteRange) -> Result<DataChunk> {
+        self.reader.seek(SeekFrom::Start(range.start())).await?;
         let mut bytes = vec![
             0;
-            usize::try_from(req.len())
+            usize::try_from(range.len())
                 .map_err(|_| Error::InvalidInput("range too large"))?
         ];
         self.reader.read_exact(&mut bytes).await?;
-        Chunk::new(req.range(), bytes)
+        DataChunk::new(range.range(), bytes)
     }
 
-    pub async fn read_zif(&mut self) -> Result<Zif> {
-        let mut reader = Reader::new();
-        let mut chunk = Chunk::default();
+    pub async fn read_zif(&mut self) -> Result<Image> {
+        let mut parser = Parser::new();
+        let mut chunk = DataChunk::default();
 
-        while let ReadStatus::Need { req, .. } = reader.advance(chunk)? {
-            chunk = self.fetch(req).await?;
+        while let ParseState::Need { range, .. } = parser.feed(chunk)? {
+            chunk = self.fetch(range).await?;
         }
 
-        reader.into_zif()
+        parser.finish()
     }
 }
 
-pub async fn read_zif(reader: impl AsyncRead + AsyncSeek + Unpin) -> Result<Zif> {
+pub async fn read_zif(reader: impl AsyncRead + AsyncSeek + Unpin) -> Result<Image> {
     AsyncRangeReader::wrap(reader).read_zif().await
 }
 
@@ -89,9 +89,9 @@ impl<W: AsyncWrite + AsyncSeek + Unpin> AsyncRangeWriter<W> {
     }
 
     pub async fn apply(&mut self, batch: WriteBatch) -> Result<()> {
-        for op in batch.into_ops() {
-            self.writer.seek(SeekFrom::Start(op.offset)).await?;
-            self.writer.write_all(&op.bytes).await?;
+        for action in batch.into_actions() {
+            self.writer.seek(SeekFrom::Start(action.offset)).await?;
+            self.writer.write_all(&action.bytes).await?;
         }
         Ok(self.writer.flush().await?)
     }

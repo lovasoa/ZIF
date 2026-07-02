@@ -5,20 +5,20 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use zif_tiff::{Codec, ColorModel, LevelSpec, WriteBatch, Writer};
+use zif_tiff::{Codec, ColorModel, LevelConfig, WriteBatch, Writer};
 
 static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
 const JPEG_GRAY_16: &[u8] = include_bytes!("jpeg-gray-16.jpg");
 const JPEG_YCBCR_420_16: &[u8] = include_bytes!("jpeg-ycbcr-420-16.jpg");
 
 fn apply(file: &mut Vec<u8>, batch: WriteBatch) {
-    for op in batch.into_ops() {
-        let offset = usize::try_from(op.offset).unwrap();
-        let end = offset + op.bytes.len();
+    for action in batch.into_actions() {
+        let offset = usize::try_from(action.offset).unwrap();
+        let end = offset + action.bytes.len();
         if file.len() < end {
             file.resize(end, 0);
         }
-        file[offset..end].copy_from_slice(&op.bytes);
+        file[offset..end].copy_from_slice(&action.bytes);
     }
 }
 
@@ -97,8 +97,8 @@ fn grayscale_jpeg_writer_output_is_readable_by_libtiff() {
 #[test]
 fn multi_level_writer_output_is_readable_by_libtiff() {
     let mut writer = Writer::new()
-        .level(LevelSpec::new((32, 32), (16, 16)).unwrap())
-        .level(LevelSpec::new((16, 16), (16, 16)).unwrap())
+        .level(LevelConfig::new((32, 32), (16, 16)).unwrap())
+        .level(LevelConfig::new((16, 16), (16, 16)).unwrap())
         .codec(Codec::Jpeg)
         .color_model(ColorModel::YCbCr)
         .channels(3)

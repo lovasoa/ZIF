@@ -1,9 +1,9 @@
 use alloc::vec::Vec;
 
-use crate::{Chunk, Codec, ColorModel, ReadStatus, Reader, WriteBatch, Writer, Zif};
+use crate::{Codec, ColorModel, DataChunk, Image, ParseState, Parser, WriteBatch, Writer};
 
 /// Returns a small valid ZIF file for examples and tests.
-pub fn zif_bytes() -> Vec<u8> {
+pub fn file() -> Vec<u8> {
     let mut writer = Writer::new()
         .dimensions((40, 40))
         .tile_size((16, 16))
@@ -31,29 +31,24 @@ pub fn zif_bytes() -> Vec<u8> {
     file
 }
 
-/// Returns a small valid ZIF file for examples and tests.
-pub fn file() -> Vec<u8> {
-    zif_bytes()
-}
-
 /// Returns parsed metadata for [`file()`].
-pub fn zif() -> Zif {
-    let file = zif_bytes();
-    let mut reader = Reader::new();
-    let status = reader
-        .advance(Chunk::from_start(0, file).expect("coherent chunk"))
+pub fn image() -> Image {
+    let file = file();
+    let mut parser = Parser::new();
+    let state = parser
+        .feed(DataChunk::from_start(0, file).expect("coherent chunk"))
         .expect("sample parses");
-    assert!(matches!(status, ReadStatus::Done { .. }));
-    reader.into_zif().expect("reader is done")
+    assert!(matches!(state, ParseState::Done { .. }));
+    parser.finish().expect("parser is done")
 }
 
 fn apply(file: &mut Vec<u8>, batch: WriteBatch) {
-    for op in batch.into_ops() {
-        let offset = usize::try_from(op.offset).expect("sample offsets fit usize");
-        let end = offset + op.bytes.len();
+    for action in batch.into_actions() {
+        let offset = usize::try_from(action.offset).expect("sample offsets fit usize");
+        let end = offset + action.bytes.len();
         if file.len() < end {
             file.resize(end, 0);
         }
-        file[offset..end].copy_from_slice(&op.bytes);
+        file[offset..end].copy_from_slice(&action.bytes);
     }
 }

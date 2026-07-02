@@ -4,11 +4,13 @@
 
 extern crate alloc;
 
+mod tiff;
+
+pub mod codec;
+pub mod chunk;
 pub mod error;
-mod format;
-mod model;
-mod reader;
-pub mod sample;
+pub mod metadata;
+pub mod parser;
 mod writer;
 
 #[cfg(feature = "std")]
@@ -20,8 +22,12 @@ pub mod tokio;
 #[cfg(feature = "http")]
 pub mod http;
 
+pub mod sample;
+
+pub use chunk::{ByteRange, DataChunk};
+pub use codec::{Codec, ColorModel};
 pub use error::{Error, Result};
-pub use model::{ChainKind, Chunk, Codec, ColorModel, Level, Region, Request, Tile, Zif, ZifView};
-pub use reader::{ReadStatus, Reader};
-pub use sample::zif_bytes as sample_zif_bytes;
-pub use writer::{LevelSpec, WriteBatch, WriteOp, Writer, WriterBuilder};
+pub use metadata::{Image, ImageKind, Level, Tile, TileIter, View};
+pub use parser::{ParseState, Parser};
+pub use sample::file as sample_file;
+pub use writer::{LevelConfig, WriteAction, WriteBatch, Writer, WriterBuilder};

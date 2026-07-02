@@ -1,22 +1,23 @@
 use alloc::vec::Vec;
 
-use crate::format::{
+use crate::codec::{Codec, ColorModel};
+use crate::tiff::{
     push_u16, push_u32, push_u64, tile_count, ENTRY_LEN, TAG_BITS, TAG_CHANNELS, TAG_CODEC,
     TAG_COLOR, TAG_HEIGHT, TAG_INTERLEAVE, TAG_TILE_COUNTS, TAG_TILE_HEIGHT, TAG_TILE_OFFSETS,
     TAG_TILE_WIDTH, TAG_WIDTH, TAG_YCBCR_SUBSAMPLING, TYPE_U16, TYPE_U32, TYPE_U64,
 };
-use crate::model::{Codec, ColorModel};
 use crate::{Error, Result};
 
+/// Configuration for one image level: pixel dimensions and tile size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LevelSpec {
+pub struct LevelConfig {
     dimensions: (u64, u64),
     tile_size: (u32, u32),
 }
 
-impl LevelSpec {
+impl LevelConfig {
     pub fn new(dimensions: (u64, u64), tile_size: (u32, u32)) -> Result<Self> {
-        validate_level_spec(dimensions, tile_size)?;
+        validate_level_config(dimensions, tile_size)?;
         Ok(Self {
             dimensions,
             tile_size,
@@ -31,11 +32,12 @@ enum PyramidMode {
     To1x1,
 }
 
+/// Builder for configuring a [`Writer`].
 #[derive(Debug, Clone)]
 pub struct WriterBuilder {
     dimensions: Option<(u64, u64)>,
     tile_size: Option<(u32, u32)>,
-    levels: Vec<LevelSpec>,
+    levels: Vec<LevelConfig>,
     codec: Option<Codec>,
     color_model: Option<ColorModel>,
     channels: Option<u16>,
@@ -48,32 +50,39 @@ impl WriterBuilder {
         self.dimensions = Some(dimensions);
         self
     }
+
     pub fn tile_size(mut self, tile_size: (u32, u32)) -> Result<Self> {
         self.tile_size = Some(tile_size);
         Ok(self)
     }
-    pub fn level(mut self, level: LevelSpec) -> Self {
+
+    pub fn level(mut self, level: LevelConfig) -> Self {
         self.levels.push(level);
         self
     }
+
     pub fn codec(mut self, codec: Codec) -> Self {
         self.codec = Some(codec);
         self
     }
+
     pub fn color_model(mut self, color_model: ColorModel) -> Self {
         self.color_model = Some(color_model);
         self
     }
+
     pub fn channels(mut self, channels: u16) -> Result<Self> {
         validate_channels(channels)?;
         self.channels = Some(channels);
         Ok(self)
     }
+
     pub fn ycbcr_subsampling(mut self, subsampling: (u16, u16)) -> Result<Self> {
         validate_ycbcr_subsampling(subsampling)?;
         self.ycbcr_subsampling = Some(subsampling);
         Ok(self)
     }
+
     pub fn preserve_nonstandard_ycbcr_subsampling(
         mut self,
         subsampling: (u16, u16),
@@ -82,14 +91,17 @@ impl WriterBuilder {
         self.ycbcr_subsampling = Some(subsampling);
         Ok(self)
     }
+
     pub fn pyramid(mut self) -> Self {
         self.pyramid = PyramidMode::ToSingleTile;
         self
     }
+
     pub fn pyramid_to_1x1(mut self) -> Self {
         self.pyramid = PyramidMode::To1x1;
         self
     }
+
     pub fn build(mut self) -> Result<Writer> {
         if self.levels.is_empty() {
             let dimensions = self
@@ -99,19 +111,19 @@ impl WriterBuilder {
                 .tile_size
                 .ok_or(Error::InvalidInput("missing tile size"))?;
             let mut dims = dimensions;
-            self.levels.push(LevelSpec::new(dims, tile_size)?);
+            self.levels.push(LevelConfig::new(dims, tile_size)?);
             match self.pyramid {
                 PyramidMode::SingleLevel => {}
                 PyramidMode::ToSingleTile => {
                     while dims.0 > u64::from(tile_size.0) || dims.1 > u64::from(tile_size.1) {
                         dims = (dims.0.div_ceil(2), dims.1.div_ceil(2));
-                        self.levels.push(LevelSpec::new(dims, tile_size)?);
+                        self.levels.push(LevelConfig::new(dims, tile_size)?);
                     }
                 }
                 PyramidMode::To1x1 => {
                     while dims.0 > 1 || dims.1 > 1 {
                         dims = (dims.0.div_ceil(2), dims.1.div_ceil(2));
-                        self.levels.push(LevelSpec::new(dims, tile_size)?);
+                        self.levels.push(LevelConfig::new(dims, tile_size)?);
                     }
                 }
             }
@@ -160,6 +172,30 @@ impl WriterBuilder {
     }
 }
 
+/// Sans-IO ZIF file structure writer.
+///
+/// The writer emits [`WriteBatch`]es of [`WriteAction`]s that the caller
+/// must apply to their IO backend. It does not own a file handle and does
+/// not choose an IO backend.
+///
+/// ```
+/// use zif_tiff::std::RangeWriter;
+///
+/// let mut file = RangeWriter::from(Vec::new());
+/// let mut writer = zif_tiff::Writer::new()
+///     .dimensions((100_000, 80_000))
+///     .tile_size((512, 512))?
+///     .codec(zif_tiff::Codec::Jpeg)
+///     .color_model(zif_tiff::ColorModel::YCbCr)
+///     .channels(3)?
+///     .build()?;
+///
+/// file.apply(writer.put_tile((0, 0), b"encoded-jpeg")?)?;
+/// let bytes = file.into_inner().into_inner();
+///
+/// println!("wrote {} bytes", bytes.len());
+/// # Ok::<(), zif_tiff::Error>(())
+/// ```
 #[derive(Debug, Clone)]
 pub struct Writer {
     levels: Vec<LevelState>,
@@ -189,7 +225,9 @@ impl Writer {
         if self.initialized {
             return Err(Error::InvalidInput("already initialized"));
         }
-        let mut batch = WriteBatch { ops: Vec::new() };
+        let mut batch = WriteBatch {
+            actions: Vec::new(),
+        };
         self.emit_init(&mut batch)?;
         Ok(batch)
     }
@@ -219,23 +257,25 @@ impl Writer {
         let index = usize::try_from(row * state.tiles_across + col)
             .map_err(|_| Error::InvalidInput("tile index too large"))?;
 
-        let mut batch = WriteBatch { ops: Vec::new() };
+        let mut batch = WriteBatch {
+            actions: Vec::new(),
+        };
         if !self.initialized {
             self.emit_init(&mut batch)?;
         }
 
         let tile_offset = self.reserve(bytes.len())?;
-        batch.ops.push(WriteOp {
+        batch.actions.push(WriteAction {
             offset: tile_offset,
             bytes: bytes.to_vec(),
         });
 
         let state = &self.levels[level];
-        batch.ops.push(WriteOp {
+        batch.actions.push(WriteAction {
             offset: state.offsets_base + index as u64 * 8,
             bytes: tile_offset.to_le_bytes().to_vec(),
         });
-        batch.ops.push(WriteOp {
+        batch.actions.push(WriteAction {
             offset: state.counts_base + index as u64 * 4,
             bytes: u32::try_from(bytes.len())
                 .map_err(|_| Error::InvalidInput("tile payload exceeds u32::MAX"))?
@@ -256,7 +296,7 @@ impl Writer {
             return Err(Error::InvalidInput("level index out of range"));
         }
         let tile_size = self.levels[level].spec.tile_size;
-        validate_level_spec(dimensions, tile_size)?;
+        validate_level_config(dimensions, tile_size)?;
         let (across, down, count) = tile_count(
             dimensions.0,
             dimensions.1,
@@ -266,10 +306,12 @@ impl Writer {
         let len = usize::try_from(count)
             .map_err(|_| Error::Unsupported("too many tiles for in-memory writer"))?;
 
-        let mut batch = WriteBatch { ops: Vec::new() };
+        let mut batch = WriteBatch {
+            actions: Vec::new(),
+        };
 
         if !self.initialized {
-            let spec = LevelSpec::new(dimensions, tile_size)?;
+            let spec = LevelConfig::new(dimensions, tile_size)?;
             self.levels[level] = LevelState {
                 spec,
                 tiles_across: across,
@@ -309,17 +351,17 @@ impl Writer {
             for v in &new_offsets {
                 push_u64(&mut buf, *v);
             }
-            batch.ops.push(WriteOp {
+            batch.actions.push(WriteAction {
                 offset: base,
                 bytes: buf,
             });
-            batch.ops.push(WriteOp {
+            batch.actions.push(WriteAction {
                 offset: dir_offset + 8 + 9 * ENTRY_LEN as u64 + 12,
                 bytes: base.to_le_bytes().to_vec(),
             });
             base
         } else {
-            batch.ops.push(WriteOp {
+            batch.actions.push(WriteAction {
                 offset: dir_offset + 8 + 9 * ENTRY_LEN as u64 + 12,
                 bytes: new_offsets[0].to_le_bytes().to_vec(),
             });
@@ -332,11 +374,11 @@ impl Writer {
             for v in &new_counts {
                 push_u32(&mut buf, *v);
             }
-            batch.ops.push(WriteOp {
+            batch.actions.push(WriteAction {
                 offset: base,
                 bytes: buf,
             });
-            batch.ops.push(WriteOp {
+            batch.actions.push(WriteAction {
                 offset: dir_offset + 8 + 10 * ENTRY_LEN as u64 + 12,
                 bytes: base.to_le_bytes().to_vec(),
             });
@@ -344,7 +386,7 @@ impl Writer {
         } else {
             let slot = dir_offset + 8 + 10 * ENTRY_LEN as u64 + 12;
             for (i, &v) in new_counts.iter().enumerate() {
-                batch.ops.push(WriteOp {
+                batch.actions.push(WriteAction {
                     offset: slot + i as u64 * 4,
                     bytes: v.to_le_bytes().to_vec(),
                 });
@@ -352,30 +394,30 @@ impl Writer {
             slot
         };
 
-        batch.ops.push(WriteOp {
+        batch.actions.push(WriteAction {
             offset: dir_offset + 8 + 12,
             bytes: u32::try_from(dimensions.0)
                 .map_err(|_| Error::Unsupported("width exceeds u32"))?
                 .to_le_bytes()
                 .to_vec(),
         });
-        batch.ops.push(WriteOp {
+        batch.actions.push(WriteAction {
             offset: dir_offset + 8 + ENTRY_LEN as u64 + 12,
             bytes: u32::try_from(dimensions.1)
                 .map_err(|_| Error::Unsupported("height exceeds u32"))?
                 .to_le_bytes()
                 .to_vec(),
         });
-        batch.ops.push(WriteOp {
+        batch.actions.push(WriteAction {
             offset: dir_offset + 8 + 9 * ENTRY_LEN as u64 + 4,
             bytes: count.to_le_bytes().to_vec(),
         });
-        batch.ops.push(WriteOp {
+        batch.actions.push(WriteAction {
             offset: dir_offset + 8 + 10 * ENTRY_LEN as u64 + 4,
             bytes: count.to_le_bytes().to_vec(),
         });
 
-        let spec = LevelSpec::new(dimensions, tile_size)?;
+        let spec = LevelConfig::new(dimensions, tile_size)?;
         self.levels[level] = LevelState {
             spec,
             tiles_across: across,
@@ -390,11 +432,11 @@ impl Writer {
         Ok(batch)
     }
 
-    pub fn add_level(&mut self, index: usize, spec: LevelSpec) -> Result<WriteBatch> {
+    pub fn add_level(&mut self, index: usize, spec: LevelConfig) -> Result<WriteBatch> {
         if index > self.levels.len() {
             return Err(Error::InvalidInput("insertion index out of range"));
         }
-        validate_level_spec(spec.dimensions, spec.tile_size)?;
+        validate_level_config(spec.dimensions, spec.tile_size)?;
         let (across, down, count) = tile_count(
             spec.dimensions.0,
             spec.dimensions.1,
@@ -404,7 +446,9 @@ impl Writer {
         let len = usize::try_from(count)
             .map_err(|_| Error::Unsupported("too many tiles for in-memory writer"))?;
 
-        let mut batch = WriteBatch { ops: Vec::new() };
+        let mut batch = WriteBatch {
+            actions: Vec::new(),
+        };
 
         if !self.initialized {
             self.levels.insert(
@@ -484,21 +528,21 @@ impl Writer {
         payload.extend_from_slice(&dir);
         payload.resize(total_size, 0);
 
-        batch.ops.push(WriteOp {
+        batch.actions.push(WriteAction {
             offset: new_dir_offset,
             bytes: payload,
         });
         self.file_len += total_size as u64;
 
         if index == 0 {
-            batch.ops.push(WriteOp {
+            batch.actions.push(WriteAction {
                 offset: 8,
                 bytes: new_dir_offset.to_le_bytes().to_vec(),
             });
         } else {
             let prev_dir = self.levels[index - 1].dir_offset;
             let next_ptr = prev_dir + 8 + entry_count * ENTRY_LEN as u64;
-            batch.ops.push(WriteOp {
+            batch.actions.push(WriteAction {
                 offset: next_ptr,
                 bytes: new_dir_offset.to_le_bytes().to_vec(),
             });
@@ -529,7 +573,9 @@ impl Writer {
             return Err(Error::InvalidInput("level index out of range"));
         }
 
-        let mut batch = WriteBatch { ops: Vec::new() };
+        let mut batch = WriteBatch {
+            actions: Vec::new(),
+        };
 
         if !self.initialized {
             self.levels.remove(index);
@@ -545,14 +591,14 @@ impl Writer {
         };
 
         if index == 0 {
-            batch.ops.push(WriteOp {
+            batch.actions.push(WriteAction {
                 offset: 8,
                 bytes: next.to_le_bytes().to_vec(),
             });
         } else {
             let prev_dir = self.levels[index - 1].dir_offset;
             let next_ptr = prev_dir + 8 + entry_count * ENTRY_LEN as u64;
-            batch.ops.push(WriteOp {
+            batch.actions.push(WriteAction {
                 offset: next_ptr,
                 bytes: next.to_le_bytes().to_vec(),
             });
@@ -629,7 +675,7 @@ impl Writer {
         let mut header = [0u8; 16];
         header[..8].copy_from_slice(&[0x49, 0x49, 0x2b, 0x00, 0x08, 0x00, 0x00, 0x00]);
         header[8..16].copy_from_slice(&16u64.to_le_bytes());
-        batch.ops.push(WriteOp {
+        batch.actions.push(WriteAction {
             offset: 0,
             bytes: header.to_vec(),
         });
@@ -663,7 +709,7 @@ impl Writer {
             )?;
             dirs.extend_from_slice(&dir);
         }
-        batch.ops.push(WriteOp {
+        batch.actions.push(WriteAction {
             offset: 16,
             bytes: dirs,
         });
@@ -681,7 +727,7 @@ impl Writer {
         }
         if !arrays.is_empty() {
             let arrays_start = 16 + (self.levels.len() as u64 * dir_size);
-            batch.ops.push(WriteOp {
+            batch.actions.push(WriteAction {
                 offset: arrays_start,
                 bytes: arrays,
             });
@@ -707,7 +753,7 @@ impl Writer {
 
 #[derive(Debug, Clone)]
 struct LevelState {
-    spec: LevelSpec,
+    spec: LevelConfig,
     tiles_across: u64,
     tiles_down: u64,
     dir_offset: u64,
@@ -717,26 +763,36 @@ struct LevelState {
     counts: Vec<u32>,
 }
 
+/// A single write action: bytes to write at a given file offset.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WriteOp {
+pub struct WriteAction {
     pub offset: u64,
     pub bytes: Vec<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A batch of [`WriteAction`]s to apply atomically.
+///
+/// ```
+/// let actions = zif_tiff::WriteBatch::default();
+/// assert!(actions.is_empty());
+/// assert_eq!(actions.actions().len(), 0);
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WriteBatch {
-    ops: Vec<WriteOp>,
+    actions: Vec<WriteAction>,
 }
 
 impl WriteBatch {
-    pub fn ops(&self) -> &[WriteOp] {
-        &self.ops
+    pub fn actions(&self) -> &[WriteAction] {
+        &self.actions
     }
-    pub fn into_ops(self) -> Vec<WriteOp> {
-        self.ops
+
+    pub fn into_actions(self) -> Vec<WriteAction> {
+        self.actions
     }
+
     pub fn is_empty(&self) -> bool {
-        self.ops.is_empty()
+        self.actions.is_empty()
     }
 }
 
@@ -820,7 +876,12 @@ fn entry_u32(out: &mut Vec<u8>, code: u16, value: u32) {
     out.extend_from_slice(&[0; 4]);
 }
 
-fn entry_u64_array(out: &mut Vec<u8>, code: u16, values: &[u64], pos: Option<u64>) -> Result<()> {
+fn entry_u64_array(
+    out: &mut Vec<u8>,
+    code: u16,
+    values: &[u64],
+    pos: Option<u64>,
+) -> Result<()> {
     entry_header(
         out,
         code,
@@ -838,7 +899,12 @@ fn entry_u64_array(out: &mut Vec<u8>, code: u16, values: &[u64], pos: Option<u64
     Ok(())
 }
 
-fn entry_u32_array(out: &mut Vec<u8>, code: u16, values: &[u32], pos: Option<u64>) -> Result<()> {
+fn entry_u32_array(
+    out: &mut Vec<u8>,
+    code: u16,
+    values: &[u32],
+    pos: Option<u64>,
+) -> Result<()> {
     entry_header(
         out,
         code,
@@ -861,7 +927,7 @@ fn entry_u32_array(out: &mut Vec<u8>, code: u16, values: &[u32], pos: Option<u64
     Ok(())
 }
 
-fn validate_level_spec(dimensions: (u64, u64), tile_size: (u32, u32)) -> Result<()> {
+fn validate_level_config(dimensions: (u64, u64), tile_size: (u32, u32)) -> Result<()> {
     if dimensions.0 == 0 || dimensions.1 == 0 || tile_size.0 == 0 || tile_size.1 == 0 {
         return Err(Error::InvalidInput("zero dimension"));
     }
