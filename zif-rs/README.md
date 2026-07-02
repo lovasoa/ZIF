@@ -1,6 +1,6 @@
 # zif-tiff
 
-`zif-tiff` is a Rust library for reading and writing [ZIF](../SPECIFICATION.md), a tiled, multi-resolution image format for very large zoomable images. ZIF is a constrained subset of BigTIFF: every ZIF file is a valid TIFF file, but most TIFF files are not valid ZIF files.
+`zif-tiff` is a Rust library for reading and writing [ZIF](../SPECIFICATION.md), a tiled, multi-resolution image format for very large zoomable images. ZIF is a constrained subset of `BigTIFF`: every ZIF file is a valid TIFF file, but most TIFF files are not valid ZIF files.
 
 ZIF stores image metadata in a BigTIFF-compatible container and stores each tile as an independent JPEG or PNG byte stream. This makes it a good fit for local files, HTTP range requests, object storage, and interactive viewers that only need a small part of a huge image at a time.
 
@@ -328,7 +328,7 @@ The reader rejects structural violations such as invalid header constants, unsor
 
 ## Format Compatibility
 
-ZIF is BigTIFF-compatible at the container level. A ZIF file can often be opened by TIFF tools that support tiled BigTIFF with JPEG or PNG compression.
+ZIF is `BigTIFF`-compatible at the container level. A ZIF file can often be opened by TIFF tools that support tiled `BigTIFF` with JPEG or PNG compression.
 
 The format is intentionally narrower than general TIFF. ZIF requires little-endian byte order, 64-bit offsets, tiled image data, 8-bit grayscale or RGB pixels, and self-contained JPEG or PNG tiles for baseline files.
 
@@ -349,4 +349,4 @@ External crates are appropriate in tests and optional IO adapters. They are not 
 
 ## License
 
-This project is licensed under the terms in [LICENSE](LICENSE).
+This project is licensed under the MIT license.

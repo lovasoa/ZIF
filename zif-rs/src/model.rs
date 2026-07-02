@@ -88,9 +88,6 @@ pub struct Request {
 
 impl Request {
     /// Creates a request for a half-open byte range.
-    ///
-    /// ```
-    /// ```
     pub fn new(range: Range<u64>) -> Result<Self> {
         if range.start > range.end {
             return Err(Error::InvalidInput("request range start is after end"));
@@ -99,32 +96,21 @@ impl Request {
     }
 
     /// Returns the requested half-open byte range.
-    ///
-    /// ```
-    /// ```
     pub fn range(&self) -> Range<u64> {
         self.range.clone()
     }
 
     /// Returns the first requested byte offset.
-    ///
-    /// ```
-    /// ```
     pub fn start(&self) -> u64 {
         self.range.start
     }
 
     /// Returns the exclusive end offset.
-    ///
-    /// ```
     pub fn end(&self) -> u64 {
         self.range.end
     }
 
     /// Returns the requested byte count.
-    ///
-    /// ```
-    /// ```
     pub fn len(&self) -> u64 {
         self.range.end - self.range.start
     }
@@ -179,9 +165,6 @@ impl<B: AsRef<[u8]>> Chunk<B> {
     /// Creates a coherent chunk for a half-open byte range.
     ///
     /// The range length must match the byte length.
-    ///
-    /// ```
-    /// ```
     pub fn new(range: Range<u64>, bytes: B) -> Result<Self> {
         if range.start > range.end {
             return Err(Error::InvalidInput("chunk range start is after end"));
@@ -198,41 +181,27 @@ impl<B: AsRef<[u8]>> Chunk<B> {
     }
 
     /// Creates a coherent chunk from a start offset and byte buffer.
-    ///
-    /// ```
-    /// ```
     pub fn from_start(start: u64, bytes: B) -> Result<Self> {
         let range = checked_len(start, bytes.as_ref().len())?;
         Self::new(range, bytes)
     }
 
     /// Returns the byte range covered by this chunk.
-    ///
-    /// ```
-    /// ```
     pub fn range(&self) -> Range<u64> {
         self.range.clone()
     }
 
     /// Returns the bytes carried by this chunk.
-    ///
-    /// ```
     pub fn bytes(&self) -> &[u8] {
         self.bytes.as_ref()
     }
 
     /// Returns the first byte offset covered by this chunk.
-    ///
-    /// ```
-    /// ```
     pub fn start(&self) -> u64 {
         self.range.start
     }
 
     /// Returns the exclusive end offset covered by this chunk.
-    ///
-    /// ```
-    /// ```
     pub fn end(&self) -> u64 {
         self.range.end
     }
@@ -274,49 +243,31 @@ impl Zif {
     }
 
     /// Returns base-level dimensions as `(width, height)`.
-    ///
-    /// ```
-    /// ```
     pub fn dimensions(&self) -> (u64, u64) {
         self.levels[0].dimensions()
     }
 
     /// Returns the base-level width in pixels.
-    ///
-    /// ```
-    /// ```
     pub fn width(&self) -> u64 {
         self.levels[0].width
     }
 
     /// Returns the base-level height in pixels.
-    ///
-    /// ```
-    /// ```
     pub fn height(&self) -> u64 {
         self.levels[0].height
     }
 
     /// Returns the number of image directories/levels.
-    ///
-    /// ```
-    /// ```
     pub fn level_count(&self) -> usize {
         self.levels.len()
     }
 
     /// Returns all parsed levels.
-    ///
-    /// ```
-    /// ```
     pub fn levels(&self) -> &[Level] {
         &self.levels
     }
 
     /// Returns a level by index.
-    ///
-    /// ```
-    /// ```
     pub fn level(&self, index: usize) -> Result<&Level> {
         self.levels
             .get(index)
@@ -324,40 +275,26 @@ impl Zif {
     }
 
     /// Returns the base-level codec.
-    ///
-    /// ```
     pub fn codec(&self) -> Codec {
         self.levels[0].codec
     }
 
     /// Returns the base-level color model.
-    ///
-    /// ```
-    /// ```
     pub fn color_model(&self) -> ColorModel {
         self.levels[0].color_model
     }
 
     /// Returns the base-level channel count.
-    ///
-    /// ```
-    /// ```
     pub fn channels(&self) -> u16 {
         self.levels[0].channels
     }
 
     /// Returns how the directory chain is classified.
-    ///
-    /// ```
-    /// ```
     pub fn chain_kind(&self) -> ChainKind {
         self.kind
     }
 
     /// Iterates every tile in a level in row-major order.
-    ///
-    /// ```
-    /// ```
     pub fn get_level_tiles(&self, level: usize) -> Result<LevelTiles<'_>> {
         let level = self.level(level)?;
         Ok(LevelTiles::new(
@@ -372,9 +309,6 @@ impl Zif {
     /// Iterates tiles intersecting a pixel region at a level.
     ///
     /// The region is `(x_range, y_range)` in pixels at that level.
-    ///
-    /// ```
-    /// ```
     pub fn get_cropped_level_tiles(
         &self,
         level: usize,
@@ -553,65 +487,39 @@ impl Level {
     }
 
     /// Returns level dimensions as `(width, height)`.
-    ///
-    /// ```
-    /// ```
     pub fn dimensions(&self) -> (u64, u64) {
         (self.width, self.height)
     }
 
     /// Returns this level's width in pixels.
-    ///
-    /// ```
-    /// ```
     pub fn width(&self) -> u64 {
         self.width
     }
     /// Returns this level's height in pixels.
-    ///
-    /// ```
-    /// ```
     pub fn height(&self) -> u64 {
         self.height
     }
     /// Returns tile dimensions as `(width, height)`.
-    ///
-    /// ```
-    /// ```
     pub fn tile_size(&self) -> (u64, u64) {
         (self.tile_width, self.tile_height)
     }
     /// Returns tile grid dimensions as `(tiles_across, tiles_down)`.
-    ///
-    /// ```
-    /// ```
     pub fn tile_grid(&self) -> (u64, u64) {
         (self.tiles_across, self.tiles_down)
     }
     /// Returns the total tile count for this level.
-    ///
-    /// ```
     pub fn tile_count(&self) -> u64 {
         self.tiles_across * self.tiles_down
     }
     /// Returns this level's codec.
-    ///
-    /// ```
-    /// ```
     pub fn codec(&self) -> Codec {
         self.codec
     }
     /// Returns this level's color model.
-    ///
-    /// ```
-    /// ```
     pub fn color_model(&self) -> ColorModel {
         self.color_model
     }
     /// Returns this level's channel count.
-    ///
-    /// ```
-    /// ```
     pub fn channels(&self) -> u16 {
         self.channels
     }
@@ -629,9 +537,6 @@ impl Level {
     }
 
     /// Returns a tile by column and row.
-    ///
-    /// ```
-    /// ```
     pub fn tile(&self, col: u64, row: u64) -> Result<Tile<'_>> {
         if col >= self.tiles_across || row >= self.tiles_down {
             return Err(Error::InvalidInput("tile coordinate out of range"));
@@ -675,8 +580,6 @@ pub struct Region {
 
 impl Region {
     /// Creates a pixel region from `(x_range, y_range)`.
-    ///
-    /// ```
     pub fn new(x: Range<u64>, y: Range<u64>) -> Result<Self> {
         if x.start > x.end || y.start > y.end {
             return Err(Error::InvalidInput("region range start is after end"));
@@ -712,71 +615,42 @@ pub struct Tile<'a> {
 
 impl Tile<'_> {
     /// Returns the level index containing this tile.
-    ///
-    /// ```
-    /// ```
     pub fn level(&self) -> usize {
         self.level.index
     }
     /// Returns this tile's row-major index.
-    ///
-    /// ```
-    /// ```
     pub fn index(&self) -> u64 {
         self.index
     }
     /// Returns the tile column.
-    ///
-    /// ```
-    /// ```
     pub fn col(&self) -> u64 {
         self.index % self.level.tiles_across
     }
     /// Returns the tile row.
-    ///
-    /// ```
-    /// ```
     pub fn row(&self) -> u64 {
         self.index / self.level.tiles_across
     }
     /// Returns the tile's left pixel coordinate.
-    ///
-    /// ```
-    /// ```
     pub fn x(&self) -> u64 {
         self.col() * self.level.tile_width
     }
     /// Returns the tile's top pixel coordinate.
-    ///
-    /// ```
-    /// ```
     pub fn y(&self) -> u64 {
         self.row() * self.level.tile_height
     }
     /// Returns the tile's clipped pixel width.
-    ///
-    /// ```
     pub fn width(&self) -> u64 {
         self.level.tile_width.min(self.level.width - self.x())
     }
     /// Returns the tile's clipped pixel height.
-    ///
-    /// ```
-    /// ```
     pub fn height(&self) -> u64 {
         self.level.tile_height.min(self.level.height - self.y())
     }
     /// Returns the tile's `(x, y)` pixel position.
-    ///
-    /// ```
-    /// ```
     pub fn position(&self) -> (u64, u64) {
         (self.x(), self.y())
     }
     /// Returns the tile's clipped `(width, height)`.
-    ///
-    /// ```
-    /// ```
     pub fn size(&self) -> (u64, u64) {
         (self.width(), self.height())
     }
@@ -797,17 +671,11 @@ impl Tile<'_> {
     }
 
     /// Returns a byte-range request for the encoded tile.
-    ///
-    /// ```
-    /// ```
     pub fn req(&self) -> Request {
         Request::new(self.bytes()).expect("tile ranges are validated when levels are built")
     }
 
     /// Returns the codec used by this tile's level.
-    ///
-    /// ```
-    /// ```
     pub fn codec(&self) -> Codec {
         self.level.codec
     }

@@ -39,13 +39,8 @@ impl<R: Read + Seek> RangeReader<R> {
         let mut reader = Reader::new();
         let mut chunk = Chunk::default();
 
-        loop {
-            match reader.advance(chunk)? {
-                ReadStatus::Need { req, .. } => {
-                    chunk = self.fetch(req)?;
-                }
-                ReadStatus::Done { .. } => break,
-            }
+        while let ReadStatus::Need { req, .. } = reader.advance(chunk)? {
+            chunk = self.fetch(req)?;
         }
 
         reader.into_zif()

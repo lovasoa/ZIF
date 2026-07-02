@@ -36,7 +36,7 @@ pub fn file() -> Vec<u8> {
     zif_bytes()
 }
 
-/// Returns parsed metadata for [`file`].
+/// Returns parsed metadata for [`file()`].
 pub fn zif() -> Zif {
     let file = zif_bytes();
     let mut reader = Reader::new();
