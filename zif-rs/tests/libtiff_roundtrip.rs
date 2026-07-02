@@ -6,7 +6,9 @@ use std::os::raw::{c_int, c_ulong};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use zif_tiff::{ChainKind, Chunk, Codec, ColorModel, LevelSpec, ReadStatus, Reader, WriteBatch, Writer};
+use zif_tiff::{
+    ChainKind, Chunk, Codec, ColorModel, LevelSpec, ReadStatus, Reader, WriteBatch, Writer,
+};
 
 use mozjpeg_sys::{
     jpeg_c_set_int_param, jpeg_compress_struct, jpeg_create_compress, jpeg_destroy_compress,

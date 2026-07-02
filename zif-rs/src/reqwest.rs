@@ -1,4 +1,4 @@
-use crate::{Chunk, Request};
+use crate::{Chunk, ReadStatus, Reader, Request, Zif};
 
 pub struct HttpRangeReader {
     client: reqwest::Client,
@@ -52,6 +52,22 @@ impl HttpRangeReader {
             None => Chunk::from_start(0, bytes),
         }
     }
+
+    pub async fn read_zif(&self) -> crate::Result<Zif> {
+        let mut reader = Reader::new();
+        let mut chunk = Chunk::default();
+
+        loop {
+            match reader.advance(chunk)? {
+                ReadStatus::Need { req, .. } => chunk = self.fetch(req).await?,
+                ReadStatus::Done { zif } => return Ok(zif.as_zif().clone()),
+            }
+        }
+    }
+}
+
+pub async fn read_zif(url: impl Into<String>) -> crate::Result<Zif> {
+    HttpRangeReader::new(url).read_zif().await
 }
 
 fn parse_content_range(value: Option<&str>) -> Option<core::ops::Range<u64>> {

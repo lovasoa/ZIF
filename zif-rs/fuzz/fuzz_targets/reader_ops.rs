@@ -13,7 +13,9 @@ use std::ffi::CString;
 use std::fs;
 use std::os::raw::{c_int, c_ulong};
 use std::sync::atomic::{AtomicU64, Ordering};
-use zif::{ChainKind, Chunk, Codec, ColorModel, LevelSpec, ReadStatus, Reader, WriteBatch, Writer};
+use zif_tiff::{
+    ChainKind, Chunk, Codec, ColorModel, LevelSpec, ReadStatus, Reader, WriteBatch, Writer,
+};
 
 const ENTRY_LEN: usize = 20;
 const TAG_WIDTH: u16 = 256;
@@ -782,7 +784,7 @@ unsafe fn assert_libtiff_u32(tiff: *mut libtiff_sys::TIFF, tag: u32, expected: u
     assert_eq!(value, expected);
 }
 
-fn assert_parsed_zif_invariants(file: &[u8], zif: &zif::Zif) {
+fn assert_parsed_zif_invariants(file: &[u8], zif: &zif_tiff::Zif) {
     assert!(zif.level_count() > 0);
     assert_eq!(zif.width(), zif.dimensions().0);
     assert_eq!(zif.height(), zif.dimensions().1);
@@ -818,7 +820,7 @@ fn assert_parsed_zif_invariants(file: &[u8], zif: &zif::Zif) {
     }
 }
 
-fn assert_tile_geometry(tile: &zif::Tile<'_>, exp: &ExpectedLevel) {
+fn assert_tile_geometry(tile: &zif_tiff::Tile<'_>, exp: &ExpectedLevel) {
     assert_eq!(tile.col(), tile.index() % exp.tiles_across);
     assert_eq!(tile.row(), tile.index() / exp.tiles_across);
     assert_eq!(tile.x(), tile.col() * exp.tile_size.0);
@@ -834,7 +836,7 @@ fn assert_tile_geometry(tile: &zif::Tile<'_>, exp: &ExpectedLevel) {
 }
 
 fn assert_crop_count(
-    zif: &zif::Zif,
+    zif: &zif_tiff::Zif,
     level_index: usize,
     region: (std::ops::Range<u64>, std::ops::Range<u64>),
 ) {
@@ -848,7 +850,7 @@ fn assert_crop_count(
 }
 
 fn expected_crop_count(
-    level: &zif::Level,
+    level: &zif_tiff::Level,
     region: &(std::ops::Range<u64>, std::ops::Range<u64>),
 ) -> u64 {
     let (tile_width, tile_height) = level.tile_size();

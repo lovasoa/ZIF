@@ -2,7 +2,8 @@ use alloc::vec::Vec;
 
 use crate::{Chunk, Codec, ColorModel, ReadStatus, Reader, WriteBatch, Writer, Zif};
 
-pub fn sample_file() -> Vec<u8> {
+/// Returns a small valid ZIF file for examples and tests.
+pub fn zif_bytes() -> Vec<u8> {
     let mut writer = Writer::new()
         .dimensions((40, 40))
         .tile_size((16, 16))
@@ -30,8 +31,14 @@ pub fn sample_file() -> Vec<u8> {
     file
 }
 
-pub fn sample_zif() -> Zif {
-    let file = sample_file();
+/// Returns a small valid ZIF file for examples and tests.
+pub fn file() -> Vec<u8> {
+    zif_bytes()
+}
+
+/// Returns parsed metadata for [`file`].
+pub fn zif() -> Zif {
+    let file = zif_bytes();
     let mut reader = Reader::new();
     let status = reader
         .advance(Chunk::from_start(0, file).expect("coherent chunk"))
@@ -40,7 +47,7 @@ pub fn sample_zif() -> Zif {
     reader.zif().expect("reader is done").clone()
 }
 
-pub fn apply(file: &mut Vec<u8>, batch: WriteBatch) {
+fn apply(file: &mut Vec<u8>, batch: WriteBatch) {
     for op in batch.into_ops() {
         let offset = usize::try_from(op.offset).expect("sample offsets fit usize");
         let end = offset + op.bytes.len();

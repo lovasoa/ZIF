@@ -2,7 +2,7 @@
 
 use libfuzzer_sys::arbitrary::{Arbitrary, Unstructured};
 use libfuzzer_sys::fuzz_target;
-use zif::{Chunk, Error, ReadStatus, Reader};
+use zif_tiff::{Chunk, Error, ReadStatus, Reader};
 
 const ENTRY_LEN: usize = 20;
 

@@ -5,7 +5,7 @@ use tokio::io::{
     AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt, SeekFrom,
 };
 
-use crate::{Chunk, Request, WriteBatch};
+use crate::{Chunk, ReadStatus, Reader, Request, WriteBatch, Zif};
 
 pub struct AsyncRangeReader<R = File> {
     reader: R,
@@ -39,6 +39,22 @@ impl<R: AsyncRead + AsyncSeek + Unpin> AsyncRangeReader<R> {
         Chunk::new(req.range(), bytes)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))
     }
+
+    pub async fn read_zif(&mut self) -> std::io::Result<Zif> {
+        let mut reader = Reader::new();
+        let mut chunk = Chunk::default();
+
+        loop {
+            match reader.advance(chunk).map_err(io_invalid_data)? {
+                ReadStatus::Need { req, .. } => chunk = self.fetch(req).await?,
+                ReadStatus::Done { zif } => return Ok(zif.as_zif().clone()),
+            }
+        }
+    }
+}
+
+pub async fn read_zif(reader: impl AsyncRead + AsyncSeek + Unpin) -> std::io::Result<Zif> {
+    AsyncRangeReader::wrap(reader).read_zif().await
 }
 
 pub struct AsyncRangeWriter<W = File> {
@@ -83,4 +99,8 @@ impl<W: AsyncWrite + AsyncSeek + Unpin> AsyncRangeWriter<W> {
         }
         self.writer.flush().await
     }
+}
+
+fn io_invalid_data(err: crate::Error) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, err)
 }

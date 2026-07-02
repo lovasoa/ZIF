@@ -241,7 +241,7 @@ impl<B: AsRef<[u8]>> Chunk<B> {
 /// Parsed ZIF metadata.
 ///
 /// ```
-/// let zif = zif_tiff::doctest::sample_zif();
+/// let zif = zif_tiff::sample::zif();
 /// assert_eq!(zif.dimensions(), (40, 40));
 /// assert_eq!(zif.width(), 40);
 /// assert_eq!(zif.height(), 40);
@@ -468,7 +468,7 @@ impl<'a> ZifView<'a> {
 /// Metadata for one image level.
 ///
 /// ```
-/// let zif = zif_tiff::doctest::sample_zif();
+/// let zif = zif_tiff::sample::zif();
 /// let level = zif.level(0)?;
 /// assert_eq!(level.dimensions(), (40, 40));
 /// assert_eq!(level.width(), 40);
@@ -614,7 +614,7 @@ impl Level {
     /// Returns the YCbCr subsampling factors recorded for JPEG YCbCr tiles.
     ///
     /// ```
-    /// let zif = zif_tiff::doctest::sample_zif();
+    /// let zif = zif_tiff::sample::zif();
     /// let level = zif.level(0)?;
     /// assert_eq!(level.ycbcr_subsampling(), Some((2, 2)));
     /// # Ok::<(), zif_tiff::Error>(())
@@ -683,7 +683,7 @@ impl Region {
 /// Metadata for one encoded tile.
 ///
 /// ```
-/// let zif = zif_tiff::doctest::sample_zif();
+/// let zif = zif_tiff::sample::zif();
 /// let tile = zif.level(0)?.tile(2, 2)?;
 /// assert_eq!(tile.level(), 0);
 /// assert_eq!(tile.index(), 8);
@@ -779,7 +779,7 @@ impl Tile<'_> {
     /// Returns the encoded tile byte range in the ZIF file.
     ///
     /// ```
-    /// let zif = zif_tiff::doctest::sample_zif();
+    /// let zif = zif_tiff::sample::zif();
     /// let tile = zif.level(0)?.tile(0, 0)?;
     /// assert!(!tile.bytes().is_empty());
     /// # Ok::<(), zif_tiff::Error>(())

@@ -1,6 +1,6 @@
 [package]
 name = "zif-tiff"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
@@ -12,7 +12,7 @@ categories = ["encoding", "multimedia::images", "parser-implementations"]
 exclude = ["tests/reallife.zif"]
 
 [features]
-default = []
+default = ["std"]
 std = []
 tokio = ["std", "dep:tokio"]
 reqwest = ["std", "dep:reqwest"]

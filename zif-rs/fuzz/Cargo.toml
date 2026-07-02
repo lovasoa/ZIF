@@ -12,7 +12,7 @@ arbitrary = { version = "1", features = ["derive"] }
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 libtiff-sys = { version = "0.2", features = ["jpeg"] }
 mozjpeg-sys = "1"
-zif = { package = "zif-tiff", path = ".." }
+zif-tiff = { path = ".." }
 
 [[bin]]
 name = "reader_ops"

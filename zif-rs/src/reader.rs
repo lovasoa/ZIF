@@ -54,7 +54,7 @@ impl Reader {
     /// requested range, or the whole file.
     ///
     /// ```
-    /// let file = zif_tiff::doctest::sample_file();
+    /// let file = zif_tiff::sample::file();
     /// let mut reader = zif_tiff::Reader::new();
     /// let status = reader.advance(zif_tiff::Chunk::from_start(0, file)?)?;
     /// assert!(matches!(status, zif_tiff::ReadStatus::Done { .. }));
@@ -90,7 +90,7 @@ impl Reader {
     /// complete file metadata.
     ///
     /// ```
-    /// let file = zif_tiff::doctest::sample_file();
+    /// let file = zif_tiff::sample::file();
     /// let mut reader = zif_tiff::Reader::new();
     /// reader.advance(zif_tiff::Chunk::from_start(0, file)?)?;
     /// assert_eq!(reader.zif()?.dimensions(), (40, 40));

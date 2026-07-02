@@ -2,13 +2,14 @@ extern crate alloc;
 
 use std::{env, io};
 
-pub use zif_tiff::{Chunk, Error, Request, WriteBatch, WriteOp};
+pub use zif_tiff::{Chunk, Error, ReadStatus, Reader, Request, WriteBatch, WriteOp, Zif};
 
 pub type Result<T> = core::result::Result<T, Error>;
 
 #[allow(dead_code)]
 #[path = "../src/tokio.rs"]
 mod file_driver;
+#[allow(dead_code)]
 #[path = "../src/reqwest.rs"]
 mod http_driver;
 
@@ -62,18 +63,7 @@ fn usage() -> io::Error {
 }
 
 async fn read_metadata(http: &http_driver::HttpRangeReader) -> io::Result<zif_tiff::Zif> {
-    let mut reader = zif_tiff::Reader::new();
-    let mut status = reader.advance(zif_tiff::Chunk::default()).map_err(io_error)?;
-
-    loop {
-        match status {
-            zif_tiff::ReadStatus::Need { req, .. } => {
-                let chunk = http.fetch(req).await.map_err(io_error)?;
-                status = reader.advance(chunk).map_err(io_error)?;
-            }
-            zif_tiff::ReadStatus::Done { zif } => return Ok(zif.as_zif().clone()),
-        }
-    }
+    http.read_zif().await.map_err(io_error)
 }
 
 fn writer_for(zif: &zif_tiff::Zif) -> io::Result<zif_tiff::Writer> {
@@ -111,7 +101,10 @@ fn writer_for(zif: &zif_tiff::Zif) -> io::Result<zif_tiff::Writer> {
     builder.build().map_err(io_error)
 }
 
-async fn fetch_tile(http: &http_driver::HttpRangeReader, req: zif_tiff::Request) -> io::Result<Vec<u8>> {
+async fn fetch_tile(
+    http: &http_driver::HttpRangeReader,
+    req: zif_tiff::Request,
+) -> io::Result<Vec<u8>> {
     if req.is_empty() {
         return Ok(Vec::new());
     }
