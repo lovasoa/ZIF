@@ -1,17 +1,7 @@
-extern crate alloc;
-
 use std::{env, io};
 
-pub use zif_tiff::{Chunk, Error, ReadStatus, Reader, Request, WriteBatch, WriteOp, Zif};
-
-pub type Result<T> = core::result::Result<T, Error>;
-
-#[allow(dead_code)]
-#[path = "../src/tokio.rs"]
-mod file_driver;
-#[allow(dead_code)]
-#[path = "../src/reqwest.rs"]
-mod http_driver;
+use zif_tiff::http::HttpRangeReader;
+use zif_tiff::tokio::FileRangeWriter;
 
 fn main() -> io::Result<()> {
     tokio::runtime::Builder::new_current_thread()
@@ -20,19 +10,23 @@ fn main() -> io::Result<()> {
         .block_on(run())
 }
 
+type HttpReader = HttpRangeReader<reqwest::Client, reqwest::Request, reqwest::Body>;
+
 async fn run() -> io::Result<()> {
     let (url, output) = args()?;
-    let http = http_driver::HttpRangeReader::new(url);
+    let client = reqwest::Client::new();
+    let uri: http::Uri = url
+        .parse()
+        .map_err(|e: http::uri::InvalidUri| invalid_data(e.to_string()))?;
+    let mut http: HttpReader = HttpRangeReader::new(client, uri);
 
-    let zif = read_metadata(&http).await?;
+    let zif = http.read_zif().await.map_err(io_error)?;
     let mut writer = writer_for(&zif)?;
-    let mut file = file_driver::FileRangeWriter::create(output)
-        .await
-        .map_err(io_error)?;
+    let mut file = FileRangeWriter::create(output).await.map_err(io_error)?;
 
     for level_index in 0..zif.level_count() {
         for tile in zif.get_level_tiles(level_index).map_err(io_error)? {
-            let bytes = fetch_tile(&http, tile.req()).await?;
+            let bytes = fetch_tile(&mut http, tile.req()).await?;
             let batch = writer
                 .put_tile_at_level(level_index, (tile.col(), tile.row()), bytes)
                 .map_err(io_error)?;
@@ -60,12 +54,8 @@ fn args() -> io::Result<(String, String)> {
 fn usage() -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
-        "usage: cargo run --example download -- <url> <output.zif>",
+        "usage: cargo run --example download --features http,tokio -- <url> <output.zif>",
     )
-}
-
-async fn read_metadata(http: &http_driver::HttpRangeReader) -> io::Result<zif_tiff::Zif> {
-    http.read_zif().await.map_err(io_error)
 }
 
 fn writer_for(zif: &zif_tiff::Zif) -> io::Result<zif_tiff::Writer> {
@@ -103,10 +93,7 @@ fn writer_for(zif: &zif_tiff::Zif) -> io::Result<zif_tiff::Writer> {
     builder.build().map_err(io_error)
 }
 
-async fn fetch_tile(
-    http: &http_driver::HttpRangeReader,
-    req: zif_tiff::Request,
-) -> io::Result<Vec<u8>> {
+async fn fetch_tile(http: &mut HttpReader, req: zif_tiff::Request) -> io::Result<Vec<u8>> {
     if req.is_empty() {
         return Ok(Vec::new());
     }

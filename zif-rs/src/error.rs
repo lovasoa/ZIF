@@ -9,8 +9,8 @@ pub enum Error {
     Unsupported(&'static str),
     #[cfg(feature = "std")]
     Io(std::io::Error),
-    #[cfg(feature = "reqwest")]
-    Http(reqwest::Error),
+    #[cfg(feature = "http")]
+    Http(Box<dyn std::error::Error + Send + Sync>),
     Incomplete,
 }
 
@@ -22,7 +22,7 @@ impl fmt::Display for Error {
             Self::Unsupported(msg) => write!(f, "unsupported ZIF feature: {msg}"),
             #[cfg(feature = "std")]
             Self::Io(err) => write!(f, "IO error: {err}"),
-            #[cfg(feature = "reqwest")]
+            #[cfg(feature = "http")]
             Self::Http(err) => write!(f, "HTTP error: {err}"),
             Self::Incomplete => f.write_str("more data is required"),
         }
@@ -34,8 +34,8 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(err) => Some(err),
-            #[cfg(feature = "reqwest")]
-            Self::Http(err) => Some(err),
+            #[cfg(feature = "http")]
+            Self::Http(err) => Some(err.as_ref()),
             Self::MalformedFile(_)
             | Self::InvalidInput(_)
             | Self::Unsupported(_)
@@ -51,9 +51,16 @@ impl From<std::io::Error> for Error {
     }
 }
 
-#[cfg(feature = "reqwest")]
-impl From<reqwest::Error> for Error {
-    fn from(value: reqwest::Error) -> Self {
-        Self::Http(value)
+#[cfg(feature = "http")]
+impl From<http::Error> for Error {
+    fn from(value: http::Error) -> Self {
+        Self::Http(Box::new(value))
+    }
+}
+
+#[cfg(feature = "http")]
+impl From<http::uri::InvalidUri> for Error {
+    fn from(value: http::uri::InvalidUri) -> Self {
+        Self::Http(Box::new(value))
     }
 }

@@ -17,8 +17,8 @@ pub mod std;
 #[cfg(feature = "tokio")]
 pub mod tokio;
 
-#[cfg(feature = "reqwest")]
-pub mod reqwest;
+#[cfg(feature = "http")]
+pub mod http;
 
 pub use error::{Error, Result};
 pub use model::{ChainKind, Chunk, Codec, ColorModel, Level, Region, Request, Tile, Zif, ZifView};

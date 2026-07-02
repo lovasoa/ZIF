@@ -1,6 +1,6 @@
 [package]
 name = "zif-tiff"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
@@ -15,17 +15,24 @@ exclude = ["tests/reallife.zif"]
 default = ["std"]
 std = []
 tokio = ["std", "dep:tokio"]
-reqwest = ["std", "dep:reqwest"]
+http = ["std", "dep:http", "dep:tower-service", "dep:http-body", "dep:http-body-util"]
 
 [dependencies]
 tokio = { version = "1", optional = true, default-features = false, features = ["fs", "io-util"] }
-reqwest = { version = "0.12", optional = true, default-features = false, features = ["blocking", "rustls-tls"] }
+http = { version = "1", optional = true }
+tower-service = { version = "0.3", optional = true }
+http-body = { version = "1", optional = true }
+http-body-util = { version = "0.1", optional = true }
 
 [dev-dependencies]
 libtiff-sys = { version = "0.2", features = ["jpeg"] }
 mozjpeg-sys = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tokio = { version = "1", default-features = false, features = ["fs", "io-util", "rt"] }
+
+[[example]]
+name = "download"
+required-features = ["http", "tokio"]
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }

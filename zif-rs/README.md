@@ -14,7 +14,8 @@ The core crate is Sans-IO: it parses metadata, plans byte-range requests, expose
 - no JPEG or PNG decoding in core
 - ergonomic tile iteration for viewports and zoom levels
 - default `std` IO adapters for files and any `Read + Seek` / `Write + Seek` object
-- optional `tokio` and `reqwest` IO adapters
+- optional `tokio` filesystem and `http` IO adapters
+- generic over any `tower_service::Service` for HTTP range requests
 - writer updates that keep the file valid at every step
 
 ## Quick Start
@@ -78,25 +79,25 @@ With Tokio filesystem helpers:
 zif-tiff = { version = "...", features = ["tokio"] }
 ```
 
-With Reqwest HTTP range helpers:
+With HTTP range request support (generic over `tower_service::Service`):
 
 ```toml
 [dependencies]
-zif-tiff = { version = "...", features = ["reqwest"] }
+zif-tiff = { version = "...", features = ["http"] }
 ```
 
 With async filesystem and HTTP helpers:
 
 ```toml
 [dependencies]
-zif-tiff = { version = "...", features = ["tokio", "reqwest"] }
+zif-tiff = { version = "...", features = ["tokio", "http"] }
 ```
 
 Feature flags:
 
 - `std`: standard-library filesystem readers and writers, enabled by default
 - `tokio`: Tokio-based filesystem readers and writers
-- `reqwest`: Reqwest-based HTTP range readers
+- `http`: HTTP range reader generic over any `tower_service::Service` (works natively with `reqwest::Client`, `hyper`, etc.)
 
 ## What ZIF Contains
 
@@ -152,7 +153,12 @@ Optional adapters provide equivalent helpers for async files and HTTP:
 
 ```rust,ignore
 let zif = zif_tiff::tokio::read_zif(file).await?;
-let zif = zif_tiff::reqwest::read_zif("https://example.com/slide.zif").await?;
+
+// HTTP: works with any tower Service
+let client = reqwest::Client::new();
+let url: http::Uri = "https://example.com/slide.zif".parse()?;
+let mut http = zif_tiff::http::HttpRangeReader::new(client, url);
+let zif = http.read_zif().await?;
 ```
 
 ## Iterating Tiles
@@ -219,7 +225,8 @@ Optional adapters cover common filesystem and HTTP cases:
 ```rust,ignore
 let mut file_io = zif_tiff::std::FileRangeReader::open("slide.zif")?;
 let mut tokio_io = zif_tiff::tokio::FileRangeReader::open("slide.zif").await?;
-let http_io = zif_tiff::reqwest::HttpRangeReader::new("https://example.com/slide.zif");
+// HTTP: reqwest::Client works as a tower Service
+let http_io = zif_tiff::http::HttpRangeReader::new(reqwest::Client::new(), "https://example.com/slide.zif".parse().unwrap());
 ```
 
 ## Low-Level Sans-IO
