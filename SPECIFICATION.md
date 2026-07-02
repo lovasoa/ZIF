@@ -1,4 +1,4 @@
-# ZIF — Zoomable Image File Format
+# The ZIF file format
 
 ZIF (Zoomable Image File) is a multi-resolution, tiled image container for
 interactive panning and zooming of very large images over the Web and other
@@ -15,11 +15,8 @@ addressable by byte offset, a client fetches only the tiles it needs using
 plain HTTP byte-range requests — no image server is required for basic
 operation.
 
-This document fully specifies the ZIF file format. No other document is needed
-to implement a reader or writer.
+ZIF was created by W. Kemp Watson at Objective Pathology Services Ltd. This document is an implementation-oriented description of the format, reconstructed from the official ZIF documentation, the [TIFF](./tiff6.md) and [BigTIFF](bigtiff.md) specifications. It is intended to help implementors, not to replace the official specification at https://zif.photo/. If these documents conflict, the official documentation is authoritative (but please [open an issue](https://github.com/lovasoa/ZIF/issues)).
 
-The key words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are used as in
-IETF RFC 2119.
 
 ---
 
